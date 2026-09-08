@@ -1,0 +1,34 @@
+{
+  "name": "originkit-keynote-motion-exporter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "app": "npm run build && node server.js",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "export:frame": "node scripts/export-frame.mjs",
+    "export:sequence": "node scripts/export-sequence.mjs",
+    "encode:prores": "node scripts/encode-prores.mjs",
+    "export:usdz:static": "node scripts/export-coin-usdz.mjs",
+    "export:usdz:animated": "node scripts/export-coin-usdz.mjs artifacts/coin-loader-animated.usdz --duration 3 --fps 60"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "express": "latest",
+    "fflate": "latest",
+    "playwright-core": "latest",
+    "pngjs": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "vitest": "latest"
+  }
+}
