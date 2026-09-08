@@ -47,6 +47,7 @@ export default function App() {
   const [usdzJob, setUsdzJob] = useState({ running: false, outputPath: "", summary: "", error: "" })
   const originRef = useRef(0)
   const timeAtPlayRef = useRef(0)
+  const previewRef = useRef<HTMLDivElement>(null)
 
   if (exportMode) {
     document.documentElement.dataset.render = "frame"
@@ -123,6 +124,18 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
+    const preview = previewRef.current
+    if (!preview) return
+    const zoom = (event: WheelEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      setDistance((value) => Math.min(80, Math.max(0.5, value + event.deltaY * 0.015)))
+    }
+    preview.addEventListener("wheel", zoom, { passive: false })
+    return () => preview.removeEventListener("wheel", zoom)
+  }, [])
+
+  useEffect(() => {
     if (!playing) return
     originRef.current = performance.now()
     timeAtPlayRef.current = time
@@ -148,8 +161,8 @@ export default function App() {
   }
   return <main className="app">
     <section className="stage">
-      <header className="titlebar"><strong className="tool-name">OriginKit → Keynote Motion Exporter</strong><div className="title-actions"><span className="version">260908X4</span><button className="theme-toggle" aria-label={theme === "light" ? "切换到暗色外观" : "切换到亮色外观"} onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "☀" : "☾"}</button></div></header>
-      <div className="checkerboard" onWheel={(event) => { event.preventDefault(); setDistance((value) => Math.min(80, Math.max(0.5, value + event.deltaY * 0.015))) }}><div className={`canvas-stage ${aspectRatio === "1:1" ? "square" : ""}`} style={{ aspectRatio: aspectRatio === "1:1" ? "1 / 1" : "16 / 9" }} data-testid="render-stage"><CoinLoader background={previewBackground} baseColor={baseColor} accentColor={accentColor} speed={speed} distance={distance} coins={{ count, coinSize, spread, ringSpeed }} timeSeconds={previewTime} loopDuration={duration} /></div></div>
+      <header className="titlebar"><strong className="tool-name">OriginKit → Keynote Motion Exporter</strong><div className="title-actions"><span className="version">260908X5</span><button className="theme-toggle" aria-label={theme === "light" ? "切换到暗色外观" : "切换到亮色外观"} onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "☀" : "☾"}</button></div></header>
+      <div className="checkerboard" ref={previewRef}><div className={`canvas-stage ${aspectRatio === "1:1" ? "square" : ""}`} style={{ aspectRatio: aspectRatio === "1:1" ? "1 / 1" : "16 / 9" }} data-testid="render-stage"><CoinLoader background={previewBackground} baseColor={baseColor} accentColor={accentColor} speed={speed} distance={distance} coins={{ count, coinSize, spread, ringSpeed }} timeSeconds={previewTime} loopDuration={duration} /></div></div>
       <div className="stage-dock"><span>Coin Loader · 双指上下滑动缩放</span><div className="stage-tools"><button className="btn" onClick={() => setPlaying((value) => !value)}>{playing ? "暂停" : "播放"}</button><button className="btn" onClick={() => { setPlaying(false); setTime(0) }}>回到开头</button></div></div>
     </section>
     <aside className="side">
