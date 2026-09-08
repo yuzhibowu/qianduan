@@ -5,6 +5,7 @@ import { resolve } from "node:path"
 import { unzipSync, strFromU8 } from "fflate"
 import { afterAll, describe, expect, it } from "vitest"
 import { buildCoinUsdz } from "./usdz"
+import { DEFAULT_COMP, FREEFORM_COMP } from "./lib/color"
 
 const scratch = mkdtempSync(resolve(tmpdir(), "originkit-usdz-loop-"))
 afterAll(() => rmSync(scratch, { recursive: true, force: true }))
@@ -34,5 +35,16 @@ describe("animated USDZ loop boundary", () => {
     expect(usda).toMatch(/xformOp:transform\.timeSamples = \{0:/)
     expect(usda).toMatch(/,179:/)
     expect(usda).not.toMatch(/,180:/)
+  })
+
+  it("writes target-specific 117-swatch compensation and emissive lift into the material", () => {
+    expect(DEFAULT_COMP.samples).toHaveLength(117)
+    expect(FREEFORM_COMP.samples).toHaveLength(117)
+    expect(DEFAULT_COMP.matrix).not.toEqual(FREEFORM_COMP.matrix)
+    const result = buildCoinUsdz({ duration: 3, delay: 0, fps: 30, speed: 100, ringSpeed: 50, count: 8, coinSize: 100, spread: 100, baseColor: "#4682B4", colorComp: DEFAULT_COMP, emissiveLift: 0.5, unlit: false })
+    const archive = unzipSync(result.bytes)
+    const usda = strFromU8(archive["model.usda"])
+    expect(usda).toContain("inputs:emissiveColor")
+    expect(usda).not.toContain("color3f inputs:diffuseColor = (0.063010,0.223228,0.456411)")
   })
 })

@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from "fflate"
+import { compensateToLinear, srgbToLinear, type ColorComp } from "./lib/color"
 
-export type CoinUsdzSettings = { duration:number; delay:number; fps:number; speed:number; ringSpeed:number; count:number; coinSize:number; spread:number; baseColor:string }
+export type CoinUsdzSettings = { duration:number; delay:number; fps:number; speed:number; ringSpeed:number; count:number; coinSize:number; spread:number; baseColor:string; colorComp?:ColorComp; emissiveLift?:number; unlit?:boolean }
 const TAU = Math.PI * 2
 const turns = (value:number) => value <= 0 ? 0 : Math.max(1, Math.round(value / 50))
 const degrees = (time:number, value:number, duration:number, delay:number) => duration > 0 ? Math.max(0, time-delay) / duration * 360 * turns(value) : 0
@@ -11,10 +12,14 @@ const matrix4 = (x:number,y:number,z:number,tx:number,ty:number,scale=1) => {
 function geometry(segments=64){const points:number[][]=[],normals:number[][]=[],indices:number[]=[],counts:number[]=[];const half=.05;for(let row=0;row<=1;row++){const y=row===0?half:-half;for(let i=0;i<=segments;i++){const a=i/segments*TAU,x=Math.sin(a),z=Math.cos(a);points.push([x,y,z]);normals.push([x,0,z])}}for(let i=0;i<segments;i++){const a=i,d=i+1,b=segments+1+i,c=b+1;indices.push(a,b,d,b,c,d);counts.push(3,3)}const cap=(top:boolean)=>{const y=top?half:-half,center=points.length;points.push([0,y,0]);normals.push([0,top?1:-1,0]);for(let i=0;i<=segments;i++){const a=i/segments*TAU;points.push([Math.sin(a),y,Math.cos(a)]);normals.push([0,top?1:-1,0])}for(let i=0;i<segments;i++){const a=center+1+i,b=a+1;indices.push(center,top?a:b,top?b:a);counts.push(3)}};cap(true);cap(false);return{points,normals,indices,counts}}
 const tuples=(v:number[][])=>`[${v.map(a=>`(${a.map(n=>Number(n.toFixed(8))).join(",")})`).join(",")}]`
 const list=(v:number[])=>`[${v.join(",")}]`
-const rgb=(hex:string)=>{const n=Number.parseInt(hex.slice(1),16);return[((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255]}
+const linearRgb=(hex:string)=>{const n=Number.parseInt(hex.slice(1),16);return[srgbToLinear(((n>>16)&255)/255),srgbToLinear(((n>>8)&255)/255),srgbToLinear((n&255)/255)] as [number,number,number]}
 
 export function buildCoinUsdz(s:CoinUsdzSettings){
-  const frames=Math.max(1,Math.round((s.duration+s.delay)*s.fps)),end=frames-1,g=geometry(),color=rgb(s.baseColor)
+  const frames=Math.max(1,Math.round((s.duration+s.delay)*s.fps)),end=frames-1,g=geometry()
+  const color=(s.colorComp ? compensateToLinear(s.baseColor,s.colorComp) : null) ?? linearRgb(s.baseColor)
+  const unlit=Boolean(s.unlit),lift=unlit?1:Math.max(0,Math.min(1,s.emissiveLift ?? 0))
+  const diffuse=unlit?[0,0,0]:color
+  const emissive=color.map(v=>v*lift)
   const samples=(fn:(t:number)=>string)=>`{${Array.from({length:frames},(_,f)=>`${f}: ${fn(f/s.fps)}`).join(",")}}`
   const mesh=`def Mesh "CoinMesh" (prepend apiSchemas = ["MaterialBindingAPI"]) {
   uniform token subdivisionScheme = "none"
@@ -50,7 +55,8 @@ def Xform "CoinLoader" {
     token outputs:surface.connect = </CoinLoader/CoinMaterial/Surface.outputs:surface>
     def Shader "Surface" {
       uniform token info:id = "UsdPreviewSurface"
-      color3f inputs:diffuseColor = (${color.map(v=>v.toFixed(6)).join(",")})
+      color3f inputs:diffuseColor = (${diffuse.map(v=>v.toFixed(6)).join(",")})
+      color3f inputs:emissiveColor = (${emissive.map(v=>v.toFixed(6)).join(",")})
       float inputs:metallic = 1
       float inputs:roughness = 0.2
       token outputs:surface
