@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import CoinLoader from "./components/CoinLoader"
 import Slider from "./components/Slider"
 import { DEFAULT_LOOP_DURATION, rotationsPerCycle } from "./time"
+import { buildCoinUsdz, downloadUsdz } from "./usdz"
 
 export default function App() {
   const query = new URLSearchParams(window.location.search)
@@ -102,11 +103,15 @@ export default function App() {
   }
 
   async function exportUsdz() {
-    setUsdzJob({ running: true, outputPath: "", summary: "正在生成 Keynote 3D 动画…", error: "" })
-    const response = await fetch("/api/export-usdz", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(usdzPayload) })
-    if (!response.ok) return setUsdzJob({ running: false, outputPath: "", summary: "", error: await response.text() })
-    const result = await response.json()
-    setUsdzJob({ running: false, outputPath: result.outputPath, summary: `完整循环 ${result.duration} 秒 · 总时长 ${result.totalDuration} 秒 · ${result.fps} FPS · ${result.samples} 个确定性采样`, error: "" })
+    setUsdzJob({ running: true, outputPath: "", summary: "正在浏览器中生成动画 USDZ…", error: "" })
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      const result = buildCoinUsdz(usdzPayload)
+      downloadUsdz(result.bytes, `OriginKit-Coin-Loader-${Date.now()}.usdz`)
+      setUsdzJob({ running: false, outputPath: "", summary: `已下载 · 完整循环 ${duration.toFixed(3)} 秒 · ${fps} FPS · ${result.frames} 个确定性采样`, error: "" })
+    } catch (error) {
+      setUsdzJob({ running: false, outputPath: "", summary: "", error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   async function cancelExport() {
@@ -143,7 +148,7 @@ export default function App() {
   }
   return <main className="app">
     <section className="stage">
-      <header className="titlebar"><strong className="tool-name">OriginKit → Keynote Motion Exporter</strong><div className="title-actions"><span className="version">260908X2</span><button className="theme-toggle" aria-label={theme === "light" ? "切换到暗色外观" : "切换到亮色外观"} onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "☀" : "☾"}</button></div></header>
+      <header className="titlebar"><strong className="tool-name">OriginKit → Keynote Motion Exporter</strong><div className="title-actions"><span className="version">260908X3</span><button className="theme-toggle" aria-label={theme === "light" ? "切换到暗色外观" : "切换到亮色外观"} onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "☀" : "☾"}</button></div></header>
       <div className="checkerboard" onWheel={(event) => { event.preventDefault(); setDistance((value) => Math.min(80, Math.max(0.5, value + event.deltaY * 0.015))) }}><div className={`canvas-stage ${aspectRatio === "1:1" ? "square" : ""}`} style={{ aspectRatio: aspectRatio === "1:1" ? "1 / 1" : "16 / 9" }} data-testid="render-stage"><CoinLoader background={previewBackground} baseColor={baseColor} accentColor={accentColor} speed={speed} distance={distance} coins={{ count, coinSize, spread, ringSpeed }} timeSeconds={previewTime} loopDuration={duration} /></div></div>
       <div className="stage-dock"><span>Coin Loader · 双指上下滑动缩放</span><div className="stage-tools"><button className="btn" onClick={() => setPlaying((value) => !value)}>{playing ? "暂停" : "播放"}</button><button className="btn" onClick={() => { setPlaying(false); setTime(0) }}>回到开头</button></div></div>
     </section>
