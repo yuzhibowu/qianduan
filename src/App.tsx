@@ -45,7 +45,7 @@ export default function App() {
   const [loop, setLoop] = useState(true)
   const [keepFrames, setKeepFrames] = useState(false)
   const [pngCompression, setPngCompression] = useState(true)
-  const [colorCorrection, setColorCorrection] = useState(true)
+  const [colorCorrection, setColorCorrection] = useState(false)
   const [colorTarget, setColorTarget] = useState<ColorTarget>("keynote")
   const [emissiveLift, setEmissiveLift] = useState(DEFAULT_COMP.calibratedLift ?? 0.5)
   const [unlit, setUnlit] = useState(false)
@@ -198,8 +198,8 @@ export default function App() {
           <button className="btn-primary" disabled={job.running || usdzJob.running} onClick={exportUsdz}>{usdzJob.running ? "正在生成 USDZ…" : "导出动画 USDZ"}</button>
           <div className="color-correction">
             <div className="opts" role="group" aria-label="导出给哪个 App 使用">
-              <button className={`opt ${colorTarget === "keynote" ? "active" : ""}`} aria-pressed={colorTarget === "keynote"} onClick={() => chooseColorTarget("keynote")}>Keynote</button>
-              <button className={`opt ${colorTarget === "freeform" ? "active" : ""}`} aria-pressed={colorTarget === "freeform"} onClick={() => chooseColorTarget("freeform")}>无边记</button>
+              <button className={`opt ${colorCorrection && colorTarget === "keynote" ? "active" : ""}`} aria-pressed={colorCorrection && colorTarget === "keynote"} onClick={() => chooseColorTarget("keynote")}>Keynote</button>
+              <button className={`opt ${colorCorrection && colorTarget === "freeform" ? "active" : ""}`} aria-pressed={colorCorrection && colorTarget === "freeform"} onClick={() => chooseColorTarget("freeform")}>无边记</button>
             </div>
             <label className="check-row color-switch"><input type="checkbox" checked={colorCorrection} onChange={(event) => setColorCorrection(event.target.checked)} /><span>{colorTargetLabel(colorTarget)} 偏色抵消</span></label>
             <details className="color-tweaks">
