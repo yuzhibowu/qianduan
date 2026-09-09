@@ -174,11 +174,19 @@ select {
   top: calc(100% + 1px);
   left: 0;
   width: 100%;
-  padding: 4px 0;
+  padding: 5px 0;
   border: 0;
   border-radius: 0;
   background: #000;
   box-shadow: 0 10px 24px rgb(0 0 0 / 28%);
+}
+.component-picker-item {
+  width: 100%;
+}
+.component-picker-divider {
+  height: 1px;
+  margin: 7px 10px;
+  background: #292929;
 }
 .component-picker-option {
   display: block;

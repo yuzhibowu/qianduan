@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
-type Option = { id: string; name: string };
+type Option = { id: string; name: string; category: string };
 
 type Props = {
   value: string;
@@ -79,17 +79,25 @@ export default function ComponentPicker({ value, options, onChange }: Props) {
           {options.map((option, index) => {
             const isSelected = option.id === value;
             return (
-              <button
-                type="button"
-                role="option"
-                aria-selected={isSelected}
-                key={option.id}
-                className={`component-picker-option ${isSelected ? "selected" : ""} ${focusedIndex === index ? "focused" : ""}`}
-                onPointerEnter={() => setFocusedIndex(index)}
-                onClick={() => choose(index)}
-              >
-                {option.name}
-              </button>
+              <div className="component-picker-item" key={option.id}>
+                {index > 0 &&
+                  options[index - 1].category !== option.category && (
+                    <div
+                      className="component-picker-divider"
+                      aria-hidden="true"
+                    />
+                  )}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  className={`component-picker-option ${isSelected ? "selected" : ""} ${focusedIndex === index ? "focused" : ""}`}
+                  onPointerEnter={() => setFocusedIndex(index)}
+                  onClick={() => choose(index)}
+                >
+                  {option.name}
+                </button>
+              </div>
             );
           })}
         </div>

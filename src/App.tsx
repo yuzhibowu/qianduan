@@ -535,11 +535,9 @@ export default function App() {
     <main className="app">
       <section className="stage">
         <header className="titlebar">
-          <strong className="tool-name">
-            OriginKit → Keynote Motion Exporter
-          </strong>
+          <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260909X11</span>
+            <span className="version">260909X12</span>
             <button
               className="theme-toggle"
               aria-label={
