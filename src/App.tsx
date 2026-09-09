@@ -304,6 +304,7 @@ export default function App() {
   const [fontFamily, setFontFamily] = useState(queryFontFamily);
   const [interactionTrack, setInteractionTrack] = useState<InteractionSample[]>(queryInteractionTrack);
   const [recordingInteraction, setRecordingInteraction] = useState(false);
+  const [replayingInteraction, setReplayingInteraction] = useState(false);
   const interactionStartedRef = useRef(0);
   const interactionPressedRef = useRef(false);
   const lastInteractionSampleRef = useRef(-1);
@@ -573,6 +574,7 @@ export default function App() {
     setFontSize(next.fontSize ?? 80);
     setFontFamily(next.fontFamily ?? "PingFang SC");
     setInteractionTrack([]);
+    setReplayingInteraction(false);
     setDuration(next.duration);
     setTime(0);
   };
@@ -725,6 +727,7 @@ export default function App() {
     reader.readAsDataURL(file);
   };
   const startInteractionRecording = () => {
+    setReplayingInteraction(false);
     setInteractionTrack([]);
     interactionStartedRef.current = performance.now();
     interactionPressedRef.current = false;
@@ -736,6 +739,11 @@ export default function App() {
   const stopInteractionRecording = () => {
     setRecordingInteraction(false);
     interactionPressedRef.current = false;
+  };
+  const replayInteraction = () => {
+    setReplayingInteraction(true);
+    setTime(0);
+    setPlaying(true);
   };
   const recordInteraction = (
     event: React.PointerEvent<HTMLDivElement>,
@@ -766,7 +774,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260909X26</span>
+            <span className="version">260909X27</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -813,7 +821,7 @@ export default function App() {
               text={text}
               fontSize={fontSize}
               fontFamily={fontFamily}
-              interactionTrack={interactionTrack}
+              interactionTrack={replayingInteraction ? interactionTrack : []}
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
@@ -837,7 +845,7 @@ export default function App() {
                   {recordingInteraction ? "停止录制" : "录制交互"}
                 </button>
                 {interactionTrack.length > 0 && !recordingInteraction && (
-                  <button className="btn" onClick={() => { setTime(0); setPlaying(true); }}>重放交互</button>
+                  <button className="btn" onClick={replayInteraction}>重放交互</button>
                 )}
               </>
             )}

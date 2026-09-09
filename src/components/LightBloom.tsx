@@ -45,7 +45,8 @@ const shader = (gl: WebGLRenderingContext, type: number, source: string) => {
 
 export default function LightBloom({ background, baseColor, accentColor, speed, timeSeconds, loopDuration, interactionTrack = [] }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const pointerRef = useRef<{ x: number; active: boolean }>({ x: 0.5, active: false });
+  const pointerRef = useRef<{ x: number; active: boolean; moved: boolean }>({ x: 0.5, active: false, moved: false });
+  const smoothRef = useRef({ x: 0.5, on: 0, lastTime: 0 });
   const renderRef = useRef<((time: number) => void) | null>(null);
   const propsRef = useRef({ background, baseColor, accentColor, speed, loopDuration, interactionTrack });
   propsRef.current = { background, baseColor, accentColor, speed, loopDuration, interactionTrack };
@@ -65,14 +66,22 @@ export default function LightBloom({ background, baseColor, accentColor, speed, 
       const scale=Math.min(devicePixelRatio||1,2), width=Math.max(1,Math.round(canvas.clientWidth*scale)),height=Math.max(1,Math.round(canvas.clientHeight*scale));
       if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height;gl.viewport(0,0,width,height);}
       const current=propsRef.current, bg=rgb(current.background==="transparent"?"#000000":current.background,[0,0,0]),base=rgb(current.baseColor,[.42,.17,.96]),accent=rgb(current.accentColor,[.94,.9,1]);
-      const phase=(time%Math.max(.001,current.loopDuration))/Math.max(.001,current.loopDuration);
-      const recorded=interactionAt(current.interactionTrack,time), automated=Math.sin(phase*Math.PI*2)*.28+.5, active=pointerRef.current.active;
+      const recorded=interactionAt(current.interactionTrack,time), active=pointerRef.current.active;
+      const targetX=active||pointerRef.current.moved?pointerRef.current.x:recorded?.x??.5;
+      const targetOn=active?1:recorded?.active?1:0;
+      const smooth=smoothRef.current;
+      if(time<smooth.lastTime){smooth.x=.5;smooth.on=0;smooth.lastTime=0;}
+      const elapsed=Math.min(.05,Math.max(0,time-smooth.lastTime));
+      smooth.lastTime=time;
+      smooth.x+=(targetX-smooth.x)*(1-Math.exp(-8*elapsed));
+      smooth.on+=(targetOn-smooth.on)*(1-Math.exp(-5*elapsed));
       gl.uniform2f(uRes,width,height);gl.uniform1f(uTime,time*(current.speed/50));gl.uniform3f(uBg,...bg);gl.uniform3f(uBase,...base);gl.uniform3f(uAccent,...accent);
-      gl.uniform1f(uOriginX,active?pointerRef.current.x:recorded?.x??automated);gl.uniform1f(uLift,active?1.14:recorded?.active?1.14:Math.sin(phase*Math.PI)**2*1.14);gl.drawArrays(gl.TRIANGLES,0,3);
+      gl.uniform1f(uOriginX,smooth.x);gl.uniform1f(uLift,1.14*smooth.on);gl.drawArrays(gl.TRIANGLES,0,3);
     };
     renderRef.current(timeSeconds);
     return()=>{renderRef.current=null;gl.deleteProgram(program);gl.deleteBuffer(buffer);};
   }, []);
   useEffect(()=>renderRef.current?.(timeSeconds),[timeSeconds]);
-  return <canvas ref={canvasRef} className="motion-root" onPointerEnter={()=>{pointerRef.current.active=true;}} onPointerLeave={()=>{pointerRef.current.active=false;}} onPointerMove={(event)=>{const rect=event.currentTarget.getBoundingClientRect();pointerRef.current.x=Math.max(0,Math.min(1,(event.clientX-rect.left)/Math.max(1,rect.width)));renderRef.current?.(timeSeconds);}} style={{position:"absolute",inset:0,width:"100%",height:"100%"}} />;
+  const updatePointer=(event: React.PointerEvent<HTMLCanvasElement>)=>{const rect=event.currentTarget.getBoundingClientRect();pointerRef.current.x=Math.max(0,Math.min(1,(event.clientX-rect.left)/Math.max(1,rect.width)));pointerRef.current.moved=true;renderRef.current?.(timeSeconds);};
+  return <canvas ref={canvasRef} className="motion-root" onPointerEnter={(event)=>{updatePointer(event);pointerRef.current.active=true;}} onPointerLeave={(event)=>{updatePointer(event);pointerRef.current.active=false;}} onPointerMove={updatePointer} style={{position:"absolute",inset:0,width:"100%",height:"100%"}} />;
 }
