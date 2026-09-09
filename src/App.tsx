@@ -626,7 +626,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260909X17</span>
+            <span className="version">260909X18</span>
             <button
               className="theme-toggle"
               aria-label={

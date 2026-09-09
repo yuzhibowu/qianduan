@@ -110,8 +110,6 @@ export function Typewriter({
         : cursor < deletingEnd
           ? Math.max(0, phrase.length - Math.floor(cursor - holdEnd))
           : 0;
-  const isTyping =
-    cursor < typingEnd || (cursor >= holdEnd && cursor < deletingEnd);
   const blink = Math.floor(timeSeconds / 0.4) % 2 === 0;
   return (
     <div className="motion-root" style={centered(background)}>
@@ -128,7 +126,15 @@ export function Typewriter({
         <span style={{ color: accentColor }}>
           {phrase.slice(0, visibleCount)}
         </span>
-        <span style={{ visibility: isTyping || blink ? "visible" : "hidden" }}>
+        <span
+          style={{
+            color: accentColor,
+            display: "inline-block",
+            marginLeft: "0.25rem",
+            letterSpacing: 0,
+            visibility: blink ? "visible" : "hidden",
+          }}
+        >
           _
         </span>
       </div>
