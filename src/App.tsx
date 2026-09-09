@@ -13,6 +13,7 @@ import { cancelBrowserExport, exportInBrowser } from "./browser-export";
 import ComponentPicker from "./components/ComponentPicker";
 import LocalFontPicker from "./components/LocalFontPicker";
 import type { InteractionSample } from "./interaction";
+import { DEFAULT_LIGHT_BLOOM, type LightBloomSettings } from "./components/LightBloom";
 import {
   DEFAULT_APPEARANCE,
   MATERIAL_PRESETS,
@@ -278,6 +279,19 @@ export default function App() {
       return [];
     }
   })();
+  const queryLightBloom: LightBloomSettings = {
+    variant: query.get("bloomStyle") === "bloom" ? "bloom" : "shafts",
+    direction: (["bottom", "top", "left", "right"].includes(query.get("bloomDirection") ?? "") ? query.get("bloomDirection") : "bottom") as LightBloomSettings["direction"],
+    background: query.get("bloomBackground") ?? DEFAULT_LIGHT_BLOOM.background,
+    hover: Number(query.get("bloomHover") ?? DEFAULT_LIGHT_BLOOM.hover),
+    rise: Number(query.get("bloomRise") ?? DEFAULT_LIGHT_BLOOM.rise),
+    spread: Number(query.get("bloomSpread") ?? DEFAULT_LIGHT_BLOOM.spread),
+    shaftCount: Number(query.get("shaftCount") ?? DEFAULT_LIGHT_BLOOM.shaftCount),
+    shaftAmount: Number(query.get("shaftAmount") ?? DEFAULT_LIGHT_BLOOM.shaftAmount),
+    shaftDrift: Number(query.get("shaftDrift") ?? DEFAULT_LIGHT_BLOOM.shaftDrift),
+    grain: Number(query.get("bloomGrain") ?? DEFAULT_LIGHT_BLOOM.grain),
+    vignette: Number(query.get("bloomVignette") ?? DEFAULT_LIGHT_BLOOM.vignette),
+  };
   const queryMaterial = (query.get("material") ?? "silver") as MaterialPresetId;
   const queryMaterialEnabled = query.get("materialEnabled") === "true";
   const queryFrontTexture = query.get("frontTexture") ?? undefined;
@@ -305,6 +319,7 @@ export default function App() {
   const [interactionTrack, setInteractionTrack] = useState<InteractionSample[]>(queryInteractionTrack);
   const [recordingInteraction, setRecordingInteraction] = useState(false);
   const [replayingInteraction, setReplayingInteraction] = useState(false);
+  const [lightBloom, setLightBloom] = useState<LightBloomSettings>(queryLightBloom);
   const interactionStartedRef = useRef(0);
   const interactionPressedRef = useRef(false);
   const lastInteractionSampleRef = useRef(-1);
@@ -423,6 +438,7 @@ export default function App() {
           fontSize={queryFontSize}
           fontFamily={queryFontFamily}
           interactionTrack={queryInteractionTrack}
+          lightBloom={queryLightBloom}
           timeSeconds={Number.isFinite(exportFrameTime) ? exportFrameTime : 0}
           loopDuration={queryDuration}
           background={isLightBloom ? queryBackground : "transparent"}
@@ -468,6 +484,7 @@ export default function App() {
       fontSize,
       fontFamily,
       interactionTrack,
+      lightBloom,
       pngCompression,
       keepFrames,
       material: appearance.material.preset,
@@ -501,6 +518,7 @@ export default function App() {
       fontSize,
       fontFamily,
       interactionTrack,
+      lightBloom,
       pngCompression,
       keepFrames,
       appearance.material.preset,
@@ -774,7 +792,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260909X27</span>
+            <span className="version">260909X28</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -822,6 +840,7 @@ export default function App() {
               fontSize={fontSize}
               fontFamily={fontFamily}
               interactionTrack={replayingInteraction ? interactionTrack : []}
+              lightBloom={lightBloom}
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
@@ -1015,15 +1034,41 @@ export default function App() {
               </>
             )}
             {isLightBloom && (
-              <Slider
-                label="动画速度"
-                value={speed}
-                min={1}
-                max={200}
-                step={1}
-                display={speed.toFixed(0)}
-                onChange={setSpeed}
-              />
+              <>
+                <h3 className="field-heading">样式</h3>
+                <div className="opts">
+                  <button className={`opt ${lightBloom.variant === "bloom" ? "active" : ""}`} onClick={() => setLightBloom((value) => ({ ...value, variant: "bloom" }))}>Bloom</button>
+                  <button className={`opt ${lightBloom.variant === "shafts" ? "active" : ""}`} onClick={() => setLightBloom((value) => ({ ...value, variant: "shafts" }))}>Shafts</button>
+                </div>
+                <h3 className="field-heading">方向</h3>
+                <div className="opts four">
+                  {(["bottom", "top", "left", "right"] as const).map((direction) => (
+                    <button key={direction} className={`opt ${lightBloom.direction === direction ? "active" : ""}`} onClick={() => setLightBloom((value) => ({ ...value, direction }))}>
+                      {{ bottom: "下", top: "上", left: "左", right: "右" }[direction]}
+                    </button>
+                  ))}
+                </div>
+                <label className="field light-bloom-background">
+                  背景
+                  <input type="color" value={lightBloom.background} onChange={(event) => setLightBloom((value) => ({ ...value, background: event.target.value }))} />
+                </label>
+                <Slider label="动画速度" value={speed} min={0} max={100} step={1} display={speed.toFixed(0)} onChange={setSpeed} />
+                <Slider label="悬浮强度" value={lightBloom.hover} min={0} max={200} step={1} display={`${lightBloom.hover}%`} onChange={(hover) => setLightBloom((value) => ({ ...value, hover }))} />
+                <h3 className="field-heading">光源</h3>
+                <Slider label="上升高度" value={lightBloom.rise} min={0} max={100} step={1} display={`${lightBloom.rise}%`} onChange={(rise) => setLightBloom((value) => ({ ...value, rise }))} />
+                <Slider label="扩散范围" value={lightBloom.spread} min={0} max={100} step={1} display={`${lightBloom.spread}%`} onChange={(spread) => setLightBloom((value) => ({ ...value, spread }))} />
+                {lightBloom.variant === "shafts" && (
+                  <>
+                    <h3 className="field-heading">光束</h3>
+                    <Slider label="数量" value={lightBloom.shaftCount} min={1} max={40} step={1} display={String(lightBloom.shaftCount)} onChange={(shaftCount) => setLightBloom((value) => ({ ...value, shaftCount }))} />
+                    <Slider label="强度" value={lightBloom.shaftAmount} min={0} max={100} step={1} display={`${lightBloom.shaftAmount}%`} onChange={(shaftAmount) => setLightBloom((value) => ({ ...value, shaftAmount }))} />
+                    <Slider label="漂移" value={lightBloom.shaftDrift} min={0} max={100} step={1} display={String(lightBloom.shaftDrift)} onChange={(shaftDrift) => setLightBloom((value) => ({ ...value, shaftDrift }))} />
+                  </>
+                )}
+                <h3 className="field-heading">质感</h3>
+                <Slider label="颗粒" value={lightBloom.grain} min={0} max={100} step={1} display={`${lightBloom.grain}%`} onChange={(grain) => setLightBloom((value) => ({ ...value, grain }))} />
+                <Slider label="暗角" value={lightBloom.vignette} min={0} max={100} step={1} display={`${lightBloom.vignette}%`} onChange={(vignette) => setLightBloom((value) => ({ ...value, vignette }))} />
+              </>
             )}
             {isDiscSplit && (
               <>

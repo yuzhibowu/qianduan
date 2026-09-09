@@ -2,6 +2,7 @@ import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL } from "@ffmpeg/util";
 import { zipSync } from "fflate";
 import type { InteractionSample } from "./interaction";
+import type { LightBloomSettings } from "./components/LightBloom";
 
 export type BrowserExportFormat = "mov" | "apng";
 
@@ -31,6 +32,7 @@ export type BrowserExportSettings = {
   fontSize: number;
   fontFamily: string;
   interactionTrack: InteractionSample[];
+  lightBloom: LightBloomSettings;
   pngCompression: boolean;
   keepFrames: boolean;
   material: string;
@@ -164,6 +166,17 @@ async function renderFrames(
     fontSize: String(settings.fontSize),
     fontFamily: settings.fontFamily,
     interaction: JSON.stringify(settings.interactionTrack),
+    bloomStyle: settings.lightBloom.variant,
+    bloomDirection: settings.lightBloom.direction,
+    bloomBackground: settings.lightBloom.background,
+    bloomHover: String(settings.lightBloom.hover),
+    bloomRise: String(settings.lightBloom.rise),
+    bloomSpread: String(settings.lightBloom.spread),
+    shaftCount: String(settings.lightBloom.shaftCount),
+    shaftAmount: String(settings.lightBloom.shaftAmount),
+    shaftDrift: String(settings.lightBloom.shaftDrift),
+    bloomGrain: String(settings.lightBloom.grain),
+    bloomVignette: String(settings.lightBloom.vignette),
     canvasAspect: String(settings.width / Math.max(1, settings.height)),
     material: settings.material,
     materialEnabled: String(settings.materialEnabled),

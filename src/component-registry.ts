@@ -10,7 +10,7 @@ import type { SurfaceAppearance } from "./appearance";
 import DiscSplit from "./components/DiscSplit";
 import GyroLoader from "./components/GyroLoader";
 import { ShinyPill, TextRing, Typewriter } from "./components/TextEffects";
-import LightBloom from "./components/LightBloom";
+import LightBloom, { type LightBloomSettings } from "./components/LightBloom";
 import type { InteractionSample } from "./interaction";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
@@ -39,6 +39,7 @@ export type MotionComponentDefinition = {
       fontSize?: number;
       fontFamily?: string;
       interactionTrack?: InteractionSample[];
+      lightBloom?: Partial<LightBloomSettings>;
       appearance?: SurfaceAppearance;
     }
   >;

@@ -493,6 +493,9 @@ h2 {
 .text-effect-field {
   margin-top: 20px;
 }
+.light-bloom-background {
+  margin-top: 14px;
+}
 .local-font-picker {
   position: relative;
   display: grid;
