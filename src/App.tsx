@@ -378,7 +378,7 @@ export default function App() {
             OriginKit → Keynote Motion Exporter
           </strong>
           <div className="title-actions">
-            <span className="version">260909X3</span>
+            <span className="version">260909X4</span>
             <button
               className="theme-toggle"
               aria-label={
