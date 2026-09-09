@@ -24,6 +24,7 @@ export type BrowserExportSettings = {
   borderWidth: number;
   rounded: number;
   glow: number;
+  borderAspect: number;
   pngCompression: boolean;
   keepFrames: boolean;
 };
@@ -147,6 +148,7 @@ async function renderFrames(
     borderWidth: String(settings.borderWidth),
     rounded: String(settings.rounded),
     glow: String(settings.glow),
+    borderAspect: String(settings.borderAspect),
   });
   const frame = document.createElement("iframe");
   frame.title = "离屏逐帧渲染器";

@@ -19,7 +19,20 @@ type ComponentControls = {
   borderWidth: number;
   rounded: number;
   glow: number;
+  borderAspect: number;
 };
+
+const BORDER_ASPECT_SNAPS = [
+  { value: 1 / 3, label: "1:3" },
+  { value: 1 / 2, label: "1:2" },
+  { value: 9 / 16, label: "9:16" },
+  { value: 3 / 4, label: "3:4" },
+  { value: 1, label: "1:1" },
+  { value: 4 / 3, label: "4:3" },
+  { value: 16 / 9, label: "16:9" },
+  { value: 2, label: "2:1" },
+  { value: 3, label: "3:1" },
+];
 
 const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
   "coin-loader": {
@@ -34,6 +47,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     borderWidth: 5,
     rounded: 35,
     glow: 50,
+    borderAspect: 16 / 9,
   },
   "glow-border": {
     baseColor: "#00EDFF",
@@ -47,6 +61,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     borderWidth: 5,
     rounded: 0,
     glow: 50,
+    borderAspect: 16 / 9,
   },
   "neon-border": {
     baseColor: "#CC9149",
@@ -60,6 +75,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     borderWidth: 6,
     rounded: 24,
     glow: 100,
+    borderAspect: 16 / 9,
   },
   "pulsating-border": {
     baseColor: "#F2244F",
@@ -73,6 +89,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     borderWidth: 5,
     rounded: 35,
     glow: 50,
+    borderAspect: 16 / 9,
   },
 };
 const colorProfileFor = (target: ColorTarget): ColorComp =>
@@ -101,6 +118,7 @@ export default function App() {
   const queryBorderWidth = Number(query.get("borderWidth") ?? 5);
   const queryRounded = Number(query.get("rounded") ?? 35);
   const queryGlow = Number(query.get("glow") ?? 50);
+  const queryBorderAspect = Number(query.get("borderAspect") ?? 16 / 9);
   const [componentId, setComponentId] = useState(queryComponent);
   const [exportFrameTime, setExportFrameTime] = useState(exportTime);
   const [playing, setPlaying] = useState(true);
@@ -116,6 +134,7 @@ export default function App() {
   const [borderWidth, setBorderWidth] = useState(queryBorderWidth);
   const [rounded, setRounded] = useState(queryRounded);
   const [glow, setGlow] = useState(queryGlow);
+  const [borderAspect, setBorderAspect] = useState(queryBorderAspect);
   const [width, setWidth] = useState(exportWidth);
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
@@ -198,6 +217,7 @@ export default function App() {
           borderWidth={queryBorderWidth}
           rounded={queryRounded}
           glow={queryGlow}
+          borderAspect={queryBorderAspect}
         />
       </div>
     );
@@ -228,6 +248,7 @@ export default function App() {
       borderWidth,
       rounded,
       glow,
+      borderAspect,
       keepFrames,
       pngCompression,
     }),
@@ -251,6 +272,7 @@ export default function App() {
       borderWidth,
       rounded,
       glow,
+      borderAspect,
       keepFrames,
       pngCompression,
     ],
@@ -290,6 +312,7 @@ export default function App() {
       borderWidth,
       rounded,
       glow,
+      borderAspect,
     };
     const next =
       componentControlsRef.current[nextId] ??
@@ -307,6 +330,7 @@ export default function App() {
     setBorderWidth(next.borderWidth);
     setRounded(next.rounded);
     setGlow(next.glow);
+    setBorderAspect(next.borderAspect);
     setTime(0);
   };
 
@@ -442,7 +466,7 @@ export default function App() {
             OriginKit → Keynote Motion Exporter
           </strong>
           <div className="title-actions">
-            <span className="version">260909X5</span>
+            <span className="version">260909X6</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -477,6 +501,7 @@ export default function App() {
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
+              borderAspect={borderAspect}
               timeSeconds={previewTime}
               loopDuration={duration}
             />
@@ -558,6 +583,21 @@ export default function App() {
                   step={1}
                   display={speed.toFixed(0)}
                   onChange={setSpeed}
+                />
+                <Slider
+                  label="尺寸比例"
+                  value={borderAspect}
+                  min={1 / 3}
+                  max={3}
+                  step={0.01}
+                  display={
+                    BORDER_ASPECT_SNAPS.find(
+                      (snap) => Math.abs(snap.value - borderAspect) < 0.001,
+                    )?.label ?? borderAspect.toFixed(2)
+                  }
+                  onChange={setBorderAspect}
+                  snaps={BORDER_ASPECT_SNAPS}
+                  snapThreshold={0.035}
                 />
                 <Slider
                   label="边框粗细"
