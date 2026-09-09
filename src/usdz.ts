@@ -326,8 +326,19 @@ const mRotateZ = (a: number): M4 => {
   m[5] = c;
   return m;
 };
+// WebGL stores matrices column-major. USD's textual matrix4d uses row-vector
+// transforms, so each stored WebGL column becomes one USD row. Transposing it
+// again would put translation in USD's last column and lose the wedge burst.
 const usdMatrix = (m: M4) =>
-  `(${[0, 1, 2, 3].map((row) => `(${[0, 1, 2, 3].map((col) => Number(m[col * 4 + row].toFixed(8))).join(",")})`).join(",")})`;
+  `(${[0, 1, 2, 3]
+    .map(
+      (row) =>
+        `(${m
+          .slice(row * 4, row * 4 + 4)
+          .map((value) => Number(value.toFixed(8)))
+          .join(",")})`,
+    )
+    .join(",")})`;
 const easeOut = (v: number) => 1 - (1 - v) * (1 - v);
 
 export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {

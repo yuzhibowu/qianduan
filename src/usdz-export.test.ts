@@ -103,6 +103,20 @@ describe("animated USDZ loop boundary", () => {
     expect(usda).toContain('def Xform "Piece6"');
     expect(usda).toContain("endTimeCode = 89");
     expect(usda).not.toMatch(/,90:/);
+    const middleFrameMatrices = Array.from(
+      usda.matchAll(/30: (\(\([^\n]+\)\))/g),
+      (match) => match[1],
+    );
+    expect(middleFrameMatrices).toHaveLength(6);
+    expect(new Set(middleFrameMatrices).size).toBe(6);
+    expect(
+      middleFrameMatrices.every((matrix) => {
+        const rows = Array.from(matrix.matchAll(/\(([^()]*)\)/g));
+        const translation =
+          rows.at(-1)?.[1].split(",").slice(0, 3).map(Number) ?? [];
+        return translation.some((value) => Math.abs(value) > 0.001);
+      }),
+    ).toBe(true);
     const check = spawnSync("/usr/bin/usdchecker", [output], {
       encoding: "utf8",
     });
