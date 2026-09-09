@@ -24,6 +24,7 @@ function AnimatedPreview({ option }: { option: Option }) {
   }, [option.id]);
   const isGyro = option.id === "gyro-loader";
   const isTypewriter = option.id === "typewriter";
+  const isTextRing = option.id === "text-ring";
   const isShiny = option.id === "shiny-pill";
   return (
     <div className="component-picker-preview-stage">
@@ -33,7 +34,7 @@ function AnimatedPreview({ option }: { option: Option }) {
         speed={50}
         distance={20}
         timeSeconds={timeSeconds}
-        loopDuration={isTypewriter ? 12 : isShiny ? 1.5 : isGyro ? 2.45 : 4}
+        loopDuration={isTypewriter ? 12 : isTextRing ? 20 : isShiny ? 1.5 : isGyro ? 2.45 : 4}
         background="transparent"
         canvasAspect={16 / 9}
         borderAspect={16 / 9}
@@ -43,8 +44,8 @@ function AnimatedPreview({ option }: { option: Option }) {
             : { count: 8, coinSize: 100, spread: 100, ringSpeed: 50 }
         }
         disc={{ count: 6, innerRadius: 22, thickness: 100, burst: 100 }}
-        text={isTypewriter ? "Interfaces|Experiences" : "SHINY PILL"}
-        fontSize={isTypewriter ? 38 : 42}
+        text={isTypewriter ? "Interfaces|Experiences" : isTextRing ? "CIRCULAR|TEXT" : "SHINY PILL"}
+        fontSize={isTypewriter ? 38 : isTextRing ? 12 : 42}
       />
     </div>
   );

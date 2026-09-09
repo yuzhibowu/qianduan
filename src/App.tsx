@@ -116,6 +116,24 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     fontSize: 80,
     duration: 12,
   },
+  "text-ring": {
+    baseColor: "#FFFFFF",
+    accentColor: "#FFFFFF",
+    speed: 20,
+    ringSpeed: 50,
+    distance: 20,
+    count: 8,
+    coinSize: 100,
+    spread: 100,
+    borderWidth: 5,
+    rounded: 35,
+    glow: 50,
+    borderAspect: 16 / 9,
+    innerRadius: 31,
+    text: "CIRCULAR|TEXT",
+    fontSize: 24,
+    duration: 20,
+  },
   "shiny-pill": {
     baseColor: "#FFFFFF",
     accentColor: "#78FF83",
@@ -289,7 +307,7 @@ export default function App() {
   ].includes(componentId);
   const isDiscSplit = componentId === "disc-split";
   const isGyroLoader = componentId === "gyro-loader";
-  const isTextEffect = ["typewriter", "shiny-pill"].includes(componentId);
+  const isTextEffect = ["typewriter", "text-ring", "shiny-pill"].includes(componentId);
 
   useEffect(() => {
     if (!exportMode) return;
@@ -608,7 +626,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260909X15</span>
+            <span className="version">260909X16</span>
             <button
               className="theme-toggle"
               aria-label={

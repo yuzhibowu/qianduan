@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 
 type TextEffectProps = {
   baseColor: string;
@@ -131,6 +131,82 @@ export function Typewriter({
         <span style={{ visibility: isTyping || blink ? "visible" : "hidden" }}>
           _
         </span>
+      </div>
+    </div>
+  );
+}
+
+export function TextRing({
+  baseColor,
+  timeSeconds,
+  loopDuration,
+  background,
+  text = "CIRCULAR|TEXT",
+  fontSize = 24,
+}: TextEffectProps) {
+  const words = text.split("|").map((word) => word.trim()).filter(Boolean);
+  const phrase = `${(words.length ? words : ["CIRCULAR", "TEXT"]).join(" ⁕ ")} ⁕ `;
+  const diameter = Math.max(180, fontSize * 13.333);
+  const layout = useMemo(() => {
+    const circumference = Math.PI * Math.max(8, diameter - fontSize * 1.1);
+    const context = document.createElement("canvas").getContext("2d");
+    if (context) context.font = `900 ${fontSize}px Inter, sans-serif`;
+    const unit = Array.from(phrase);
+    const unitWidth = unit.reduce(
+      (sum, character) => sum + (context?.measureText(character).width ?? fontSize * 0.55),
+      0,
+    );
+    const repeats = Math.max(1, Math.ceil(circumference / Math.max(1, unitWidth)));
+    const letters = Array.from(phrase.repeat(repeats));
+    const widths = letters.map(
+      (character) => context?.measureText(character).width ?? fontSize * 0.55,
+    );
+    const spacing = Math.max(0, (circumference - widths.reduce((a, b) => a + b, 0)) / letters.length);
+    const total = widths.reduce((a, b) => a + b, 0) + spacing * letters.length;
+    let offset = 0;
+    return letters.map((character, index) => {
+      const angle = ((offset + widths[index] / 2) / total) * 360;
+      offset += widths[index] + spacing;
+      return { character, angle };
+    });
+  }, [diameter, fontSize, phrase]);
+  const rotation = ((timeSeconds / Math.max(0.001, loopDuration)) * 360) % 360;
+  return (
+    <div className="motion-root" style={centered(background)}>
+      <div
+        style={{
+          position: "relative",
+          width: `min(72%, ${diameter}px)`,
+          aspectRatio: "1",
+          color: baseColor,
+          transform: `rotate(${rotation}deg)`,
+        }}
+      >
+        {layout.map(({ character, angle }, index) => {
+          return (
+            <span
+              key={`${character}-${index}`}
+              style={{ position: "absolute", inset: fontSize * 0.55, transform: `rotate(${angle + 90}deg)` }}
+            >
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: 0,
+                fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+                fontSize,
+                fontWeight: 900,
+                lineHeight: 1,
+                whiteSpace: "pre",
+                transform: "translate(-50%, -50%)",
+              }}
+            >
+              {character === " " ? "\u00a0" : character}
+            </span>
+            </span>
+          );
+        })}
       </div>
     </div>
   );

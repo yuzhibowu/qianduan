@@ -8,7 +8,7 @@ import {
 import type { ComponentType } from "react";
 import DiscSplit from "./components/DiscSplit";
 import GyroLoader from "./components/GyroLoader";
-import { ShinyPill, Typewriter } from "./components/TextEffects";
+import { ShinyPill, TextRing, Typewriter } from "./components/TextEffects";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -79,6 +79,16 @@ export const componentRegistry: MotionComponentDefinition[] = [
     poster:
       "https://cdn.originkit.dev/components/typewriter-gallery-poster.jpg?v=mszok3qm",
     renderer: Typewriter,
+    exportCapabilities: ["mov", "apng"],
+    triggerMode: "auto",
+  },
+  {
+    id: "text-ring",
+    name: "Text Ring",
+    category: "Text",
+    source: "OriginKit",
+    poster: "https://cdn.originkit.dev/components/text-ring-poster.jpg",
+    renderer: TextRing,
     exportCapabilities: ["mov", "apng"],
     triggerMode: "auto",
   },
