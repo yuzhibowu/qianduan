@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from "react";
+import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "../appearance";
 
 type RGB = [number, number, number];
 type Matrix4 = Float32Array;
@@ -18,6 +19,7 @@ export type DiscSplitProps = {
     burst: number;
   };
   style?: CSSProperties;
+  appearance?: SurfaceAppearance;
 };
 
 const TAU = Math.PI * 2;
@@ -241,14 +243,23 @@ attribute vec3 aNrm;
 uniform mat4 uMVP;
 uniform mat3 uNM;
 varying vec3 vN;
-void main() { vN = uNM * aNrm; gl_Position = uMVP * vec4(aPos, 1.0); }
+varying vec3 vP;
+void main() { vN = uNM * aNrm; vP = aPos; gl_Position = uMVP * vec4(aPos, 1.0); }
 `;
 
 const fragmentShader = `
 precision highp float;
 varying vec3 vN;
+varying vec3 vP;
 uniform vec3 uBase;
 uniform vec3 uAcc;
+uniform float uMetallic;
+uniform float uRoughness;
+uniform float uOpacity;
+uniform sampler2D uFront;
+uniform sampler2D uBack;
+uniform float uHasFront;
+uniform float uHasBack;
 const vec3 KEY = vec3(-0.4364, 0.4601, 0.7733);
 const vec3 FILL = vec3(0.7831, 0.1309, 0.6080);
 void main() {
@@ -257,11 +268,16 @@ void main() {
   float k = max(dot(n, KEY), 0.0);
   float f = max(dot(n, FILL), 0.0);
   float graze = 1.0 - clamp(abs(n.z), 0.0, 1.0);
-  vec3 c = uBase * (0.08 + 0.62 * pow(k, 2.0));
-  c += uAcc * 0.80 * pow(k, 9.0);
-  c += uAcc * 0.35 * pow(f, 6.0);
-  c += uAcc * 0.32 * pow(graze, 3.0) * (0.40 + 0.60 * max(n.y, 0.0));
-  gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+  float shine = mix(3.0, 18.0, 1.0 - uRoughness);
+  vec3 diffuse = uBase * (0.18 + 0.72 * k + 0.18 * f) * (1.0 - 0.72 * uMetallic);
+  vec3 metal = uBase * (0.07 + 0.64 * pow(k, 2.0));
+  vec3 c = mix(diffuse, metal, uMetallic);
+  c += uAcc * mix(0.22, 0.92, uMetallic) * pow(k, shine);
+  c += uAcc * 0.28 * pow(graze, mix(1.5, 4.0, 1.0 - uRoughness));
+  vec2 uv = vec2(vP.x * 0.5 + 0.5, vP.y * 0.5 + 0.5);
+  if (vP.z > 0.0001 && uHasFront > 0.5) c = texture2D(uFront, uv).rgb * (0.45 + 0.55 * max(k, 0.25)) + uAcc * 0.18 * pow(k, shine);
+  if (vP.z < 0.0001 && uHasBack > 0.5) c = texture2D(uBack, vec2(1.0 - uv.x, uv.y)).rgb * (0.45 + 0.55 * max(k, 0.25)) + uAcc * 0.18 * pow(k, shine);
+  gl_FragColor = vec4(clamp(c, 0.0, 1.0), uOpacity);
 }
 `;
 
@@ -289,6 +305,7 @@ export default function DiscSplit({
   loopDuration,
   disc,
   style,
+  appearance = DEFAULT_APPEARANCE,
 }: DiscSplitProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const liveRef = useRef({
@@ -298,6 +315,7 @@ export default function DiscSplit({
     distance,
     disc: { ...DEFAULT_DISC, ...disc },
     timeSeconds,
+    appearance,
   });
   liveRef.current = {
     baseColor,
@@ -306,6 +324,7 @@ export default function DiscSplit({
     distance,
     disc: { ...DEFAULT_DISC, ...disc },
     timeSeconds,
+    appearance,
   };
 
   useEffect(() => {
@@ -334,7 +353,14 @@ export default function DiscSplit({
     const uMVP = gl.getUniformLocation(program, "uMVP"),
       uNM = gl.getUniformLocation(program, "uNM");
     const uBase = gl.getUniformLocation(program, "uBase"),
-      uAcc = gl.getUniformLocation(program, "uAcc");
+      uAcc = gl.getUniformLocation(program, "uAcc"),
+      uMetallic = gl.getUniformLocation(program, "uMetallic"),
+      uRoughness = gl.getUniformLocation(program, "uRoughness"),
+      uOpacity = gl.getUniformLocation(program, "uOpacity");
+    const uFront = gl.getUniformLocation(program, "uFront"),
+      uBack = gl.getUniformLocation(program, "uBack"),
+      uHasFront = gl.getUniformLocation(program, "uHasFront"),
+      uHasBack = gl.getUniformLocation(program, "uHasBack");
     const positionBuffer = gl.createBuffer(),
       normalBuffer = gl.createBuffer(),
       indexBuffer = gl.createBuffer();
@@ -343,6 +369,13 @@ export default function DiscSplit({
       !uNM ||
       !uBase ||
       !uAcc ||
+      !uMetallic ||
+      !uRoughness ||
+      !uOpacity ||
+      !uFront ||
+      !uBack ||
+      !uHasFront ||
+      !uHasBack ||
       !positionBuffer ||
       !normalBuffer ||
       !indexBuffer
@@ -351,8 +384,37 @@ export default function DiscSplit({
     gl.enableVertexAttribArray(aPos);
     gl.enableVertexAttribArray(aNrm);
     gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthFunc(gl.LEQUAL);
     gl.clearColor(0, 0, 0, 0);
+    const makeTexture = (unit: number, source?: string) => {
+      const texture = gl.createTexture()!;
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      if (source) {
+        const image = new Image();
+        image.onload = () => {
+          gl.activeTexture(gl.TEXTURE0 + unit);
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+          draw();
+        };
+        image.src = source;
+      }
+      return texture;
+    };
+    const frontTexture = makeTexture(0, appearance.frontTexture),
+      backTexture = makeTexture(1, appearance.backTexture);
+    gl.uniform1i(uFront, 0);
+    gl.uniform1i(uBack, 1);
+    gl.uniform1f(uHasFront, appearance.enabled && appearance.frontTexture ? 1 : 0);
+    gl.uniform1f(uHasBack, appearance.enabled && appearance.backTexture ? 1 : 0);
     let geometryKey = "",
       indexCount = 0;
     const resize = () => {
@@ -395,8 +457,14 @@ export default function DiscSplit({
       gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
       gl.vertexAttribPointer(aNrm, 3, gl.FLOAT, false, 0, 0);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-      gl.uniform3fv(uBase, parseColor(settings.baseColor, [0.56, 0.6, 0.65]));
+      const material = settings.appearance.enabled
+        ? settings.appearance.material
+        : { ...settings.appearance.material, color: settings.baseColor, metallic: 1, roughness: 0.2, opacity: 1 };
+      gl.uniform3fv(uBase, parseColor(material.color, [0.56, 0.6, 0.65]));
       gl.uniform3fv(uAcc, parseColor(settings.accentColor, [1, 1, 1]));
+      gl.uniform1f(uMetallic, material.metallic);
+      gl.uniform1f(uRoughness, material.roughness);
+      gl.uniform1f(uOpacity, material.opacity);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       const aspect = canvas.width / canvas.height;
       const pv = multiply(
@@ -452,10 +520,12 @@ export default function DiscSplit({
       gl.deleteBuffer(normalBuffer);
       gl.deleteBuffer(indexBuffer);
       gl.deleteProgram(program);
+      gl.deleteTexture(frontTexture);
+      gl.deleteTexture(backTexture);
       gl.deleteShader(vs);
       gl.deleteShader(fs);
     };
-  }, [loopDuration]);
+  }, [loopDuration, appearance.enabled, appearance.frontTexture, appearance.backTexture]);
 
   return (
     <div className="motion-root" style={{ background, ...style }}>

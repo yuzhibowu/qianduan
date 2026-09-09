@@ -41,6 +41,11 @@ const PREVIEW_PRESETS: Record<string, Partial<BorderRendererProps>> = {
     rounded: 35,
     glow: 50,
   },
+  "light-bloom": {
+    baseColor: "#6b2bf5",
+    accentColor: "#efe6ff",
+    speed: 100,
+  },
 };
 
 const PREVIEW_DURATIONS: Record<string, number> = {
@@ -53,6 +58,7 @@ const PREVIEW_DURATIONS: Record<string, number> = {
   "glow-border": 10,
   "neon-border": 9.474,
   "pulsating-border": 10,
+  "light-bloom": 10,
 };
 
 function AnimatedPreview({ option }: { option: Option }) {
@@ -72,6 +78,8 @@ function AnimatedPreview({ option }: { option: Option }) {
   const isTypewriter = option.id === "typewriter";
   const isTextRing = option.id === "text-ring";
   const isShiny = option.id === "shiny-pill";
+  const isText = option.category === "Text";
+  const isBorder = option.category === "Particle";
   const preset = PREVIEW_PRESETS[option.id] ?? PREVIEW_PRESETS["coin-loader"];
   return (
     <div className="component-picker-preview-stage">
@@ -79,7 +87,7 @@ function AnimatedPreview({ option }: { option: Option }) {
         baseColor={preset.baseColor ?? "#ffffff"}
         accentColor={preset.accentColor ?? "#ffffff"}
         speed={preset.speed ?? 50}
-        distance={20}
+        distance={isBorder ? 30 : 20}
         timeSeconds={timeSeconds}
         loopDuration={PREVIEW_DURATIONS[option.id] ?? 4}
         background="transparent"
@@ -97,6 +105,7 @@ function AnimatedPreview({ option }: { option: Option }) {
         text={isTypewriter ? "Interfaces|Experiences" : isTextRing ? "CIRCULAR|TEXT" : "SHINY PILL"}
         fontSize={isTypewriter ? 38 : isTextRing ? 12 : 42}
         fontFamily="PingFang SC"
+        previewScale={isText ? 0.62 : 1}
       />
     </div>
   );

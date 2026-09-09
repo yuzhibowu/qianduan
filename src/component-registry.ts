@@ -6,9 +6,12 @@ import {
   type BorderRendererProps,
 } from "./components/BorderComponents";
 import type { ComponentType } from "react";
+import type { SurfaceAppearance } from "./appearance";
 import DiscSplit from "./components/DiscSplit";
 import GyroLoader from "./components/GyroLoader";
 import { ShinyPill, TextRing, Typewriter } from "./components/TextEffects";
+import LightBloom from "./components/LightBloom";
+import type { InteractionSample } from "./interaction";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -35,10 +38,12 @@ export type MotionComponentDefinition = {
       text?: string;
       fontSize?: number;
       fontFamily?: string;
+      interactionTrack?: InteractionSample[];
+      appearance?: SurfaceAppearance;
     }
   >;
   exportCapabilities: ExportCapability[];
-  triggerMode: "auto";
+  triggerMode: "auto" | "pointer";
 };
 
 export const componentRegistry: MotionComponentDefinition[] = [
@@ -133,6 +138,16 @@ export const componentRegistry: MotionComponentDefinition[] = [
     renderer: PulsatingBorder,
     exportCapabilities: ["mov", "apng"],
     triggerMode: "auto",
+  },
+  {
+    id: "light-bloom",
+    name: "Light Bloom",
+    category: "Background",
+    source: "OriginKit",
+    poster: "https://cdn.originkit.dev/components/light-bloom-poster.jpg",
+    renderer: LightBloom,
+    exportCapabilities: ["mov", "apng"],
+    triggerMode: "pointer",
   },
 ];
 

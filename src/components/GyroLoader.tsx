@@ -11,6 +11,7 @@ import {
   translation,
   vertexShader,
 } from "./CoinLoader";
+import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "../appearance";
 
 type Props = {
   background?: string;
@@ -26,6 +27,7 @@ type Props = {
   };
   timeSeconds: number;
   loopDuration: number;
+  appearance?: SurfaceAppearance;
 };
 
 const TAU = Math.PI * 2;
@@ -83,6 +85,7 @@ export default function GyroLoader({
   coins,
   timeSeconds,
   loopDuration,
+  appearance = DEFAULT_APPEARANCE,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderRef = useRef<((time: number) => void) | null>(null);
@@ -91,12 +94,14 @@ export default function GyroLoader({
     accentColor,
     distance,
     rings: { ...DEFAULT_RINGS, ...coins },
+    appearance,
   });
   liveRef.current = {
     baseColor,
     accentColor,
     distance,
     rings: { ...DEFAULT_RINGS, ...coins },
+    appearance,
   };
 
   useEffect(() => {
@@ -125,12 +130,17 @@ export default function GyroLoader({
     const uMVP = gl.getUniformLocation(program, "uMVP"),
       uNM = gl.getUniformLocation(program, "uNM");
     const uBase = gl.getUniformLocation(program, "uBase"),
-      uAcc = gl.getUniformLocation(program, "uAcc");
-    if (!uMVP || !uNM || !uBase || !uAcc)
+      uAcc = gl.getUniformLocation(program, "uAcc"),
+      uMetallic = gl.getUniformLocation(program, "uMetallic"),
+      uRoughness = gl.getUniformLocation(program, "uRoughness"),
+      uOpacity = gl.getUniformLocation(program, "uOpacity");
+    if (!uMVP || !uNM || !uBase || !uAcc || !uMetallic || !uRoughness || !uOpacity)
       throw new Error("Gyro Loader 初始化失败");
     gl.enableVertexAttribArray(aPos);
     gl.enableVertexAttribArray(aNrm);
     gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthFunc(gl.LEQUAL);
     gl.clearColor(0, 0, 0, 0);
     let buffers: {
@@ -202,8 +212,14 @@ export default function GyroLoader({
       const stagger = settings.rings.spread / 1000,
         pause = settings.rings.ringSpeed / 1000;
       const motion = Math.max(0.001, cycle - stagger * (count - 1) - pause);
-      gl.uniform3fv(uBase, parseColor(settings.baseColor, [0.56, 0.6, 0.65]));
+      const material = settings.appearance.enabled
+        ? settings.appearance.material
+        : { ...settings.appearance.material, color: settings.baseColor, metallic: 1, roughness: 0.2, opacity: 1 };
+      gl.uniform3fv(uBase, parseColor(material.color, [0.56, 0.6, 0.65]));
       gl.uniform3fv(uAcc, parseColor(settings.accentColor, [1, 1, 1]));
+      gl.uniform1f(uMetallic, material.metallic);
+      gl.uniform1f(uRoughness, material.roughness);
+      gl.uniform1f(uOpacity, material.opacity);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       buffers.forEach((buffer, index) => {
         const progress = Math.min(
@@ -241,7 +257,7 @@ export default function GyroLoader({
 
   useEffect(() => {
     renderRef.current?.(timeSeconds);
-  }, [timeSeconds, baseColor, accentColor, distance, coins]);
+  }, [timeSeconds, baseColor, accentColor, distance, coins, appearance]);
   return (
     <div className="motion-root" style={{ background }}>
       <canvas

@@ -123,6 +123,46 @@ describe("animated USDZ loop boundary", () => {
     expect(check.status, check.stdout + check.stderr).toBe(0);
   });
 
+  it("embeds front and back artwork as separate USDZ material slots", () => {
+    const pixel =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l8dZAAAAAElFTkSuQmCC";
+    const output = resolve(scratch, "textured-coin.usdz");
+    const result = buildCoinUsdz({
+      duration: 1,
+      delay: 0,
+      fps: 2,
+      speed: 50,
+      ringSpeed: 50,
+      count: 1,
+      coinSize: 100,
+      spread: 100,
+      baseColor: "#FFFFFF",
+    appearance: {
+      enabled: true,
+      material: {
+          preset: "gold",
+          color: "#D4A928",
+          metallic: 1,
+          roughness: 0.18,
+          opacity: 1,
+          ior: 1.5,
+        },
+        frontTexture: pixel,
+        backTexture: pixel,
+      },
+    });
+    writeFileSync(output, result.bytes);
+    const archive = unzipSync(result.bytes);
+    const usda = strFromU8(archive["model.usda"]);
+    expect(archive["textures/front.png"]).toBeTruthy();
+    expect(archive["textures/back.png"]).toBeTruthy();
+    expect(usda).toContain('def GeomSubset "Front"');
+    expect(usda).toContain('def GeomSubset "Back"');
+    expect(usda).toContain('uniform token info:id = "UsdUVTexture"');
+    const check = spawnSync("/usr/bin/usdchecker", [output], { encoding: "utf8" });
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+  });
+
   it("builds Gyro Loader as separately animated torus geometry", () => {
     const output = resolve(scratch, "gyro-loader.usdz");
     const result = buildGyroLoaderUsdz({

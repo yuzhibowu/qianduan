@@ -12,6 +12,14 @@ import { componentRegistry, getMotionComponent } from "./component-registry";
 import { cancelBrowserExport, exportInBrowser } from "./browser-export";
 import ComponentPicker from "./components/ComponentPicker";
 import LocalFontPicker from "./components/LocalFontPicker";
+import type { InteractionSample } from "./interaction";
+import {
+  DEFAULT_APPEARANCE,
+  MATERIAL_PRESETS,
+  materialFromPreset,
+  type MaterialPresetId,
+  type SurfaceAppearance,
+} from "./appearance";
 
 type ColorTarget = "keynote" | "freeform";
 type ComponentControls = {
@@ -205,6 +213,22 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     innerRadius: 31,
     duration: BORDER_DEFAULT_DURATIONS["pulsating-border"],
   },
+  "light-bloom": {
+    baseColor: "#6B2BF5",
+    accentColor: "#EFE6FF",
+    speed: 100,
+    ringSpeed: 50,
+    distance: 20,
+    count: 9,
+    coinSize: 100,
+    spread: 72,
+    borderWidth: 5,
+    rounded: 35,
+    glow: 70,
+    borderAspect: 16 / 9,
+    innerRadius: 31,
+    duration: 10,
+  },
 };
 const colorProfileFor = (target: ColorTarget): ColorComp =>
   target === "keynote" ? DEFAULT_COMP : FREEFORM_COMP;
@@ -247,6 +271,17 @@ export default function App() {
   );
   const queryFontFamily =
     query.get("fontFamily") ?? queryDefaults.fontFamily ?? "PingFang SC";
+  const queryInteractionTrack = (() => {
+    try {
+      return JSON.parse(query.get("interaction") ?? "[]") as InteractionSample[];
+    } catch {
+      return [];
+    }
+  })();
+  const queryMaterial = (query.get("material") ?? "silver") as MaterialPresetId;
+  const queryMaterialEnabled = query.get("materialEnabled") === "true";
+  const queryFrontTexture = query.get("frontTexture") ?? undefined;
+  const queryBackTexture = query.get("backTexture") ?? undefined;
   const [componentId, setComponentId] = useState(queryComponent);
   const [exportFrameTime, setExportFrameTime] = useState(exportTime);
   const [playing, setPlaying] = useState(true);
@@ -267,6 +302,11 @@ export default function App() {
   const [text, setText] = useState(queryText);
   const [fontSize, setFontSize] = useState(queryFontSize);
   const [fontFamily, setFontFamily] = useState(queryFontFamily);
+  const [interactionTrack, setInteractionTrack] = useState<InteractionSample[]>(queryInteractionTrack);
+  const [recordingInteraction, setRecordingInteraction] = useState(false);
+  const interactionStartedRef = useRef(0);
+  const interactionPressedRef = useRef(false);
+  const lastInteractionSampleRef = useRef(-1);
   const [width, setWidth] = useState(exportWidth);
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
@@ -276,13 +316,21 @@ export default function App() {
   const [background, setBackground] = useState("transparent");
   const [loop, setLoop] = useState(true);
   const [keepFrames, setKeepFrames] = useState(false);
-  const [pngCompression, setPngCompression] = useState(true);
+  const [pngCompression, setPngCompression] = useState(false);
   const [colorCorrection, setColorCorrection] = useState(false);
   const [colorTarget, setColorTarget] = useState<ColorTarget>("keynote");
   const [emissiveLift, setEmissiveLift] = useState(
     DEFAULT_COMP.calibratedLift ?? 0.5,
   );
   const [unlit, setUnlit] = useState(false);
+  const [appearances, setAppearances] = useState<Record<string, SurfaceAppearance>>({
+    "coin-loader": { ...DEFAULT_APPEARANCE, material: materialFromPreset("silver") },
+    "disc-split": { ...DEFAULT_APPEARANCE, material: materialFromPreset("gold") },
+    "gyro-loader": { ...DEFAULT_APPEARANCE, material: materialFromPreset("stainless") },
+    typewriter: { ...DEFAULT_APPEARANCE, material: materialFromPreset("silver") },
+    "text-ring": { ...DEFAULT_APPEARANCE, material: materialFromPreset("gold") },
+    "shiny-pill": { ...DEFAULT_APPEARANCE, material: materialFromPreset("plastic") },
+  });
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [job, setJob] = useState({
     running: false,
@@ -315,7 +363,20 @@ export default function App() {
   ].includes(componentId);
   const isDiscSplit = componentId === "disc-split";
   const isGyroLoader = componentId === "gyro-loader";
+  const isLightBloom = componentId === "light-bloom";
   const isTextEffect = ["typewriter", "text-ring", "shiny-pill"].includes(componentId);
+  const supportsInteractionRecording =
+    componentDefinition.category === "Interaction" || componentId === "light-bloom";
+  const is3DComponent = ["coin-loader", "disc-split", "gyro-loader"].includes(componentId);
+  const hasMaterialAppearance = is3DComponent || isTextEffect;
+  const appearance = exportMode
+    ? { ...DEFAULT_APPEARANCE, enabled: queryMaterialEnabled, material: materialFromPreset(queryMaterial), frontTexture: queryFrontTexture, backTexture: queryBackTexture }
+    : appearances[componentId] ?? DEFAULT_APPEARANCE;
+  const updateAppearance = (update: (value: SurfaceAppearance) => SurfaceAppearance) =>
+    setAppearances((current) => ({
+      ...current,
+      [componentId]: update(current[componentId] ?? DEFAULT_APPEARANCE),
+    }));
 
   useEffect(() => {
     if (!exportMode) return;
@@ -360,14 +421,16 @@ export default function App() {
           text={queryText}
           fontSize={queryFontSize}
           fontFamily={queryFontFamily}
+          interactionTrack={queryInteractionTrack}
           timeSeconds={Number.isFinite(exportFrameTime) ? exportFrameTime : 0}
           loopDuration={queryDuration}
-          background="transparent"
+          background={isLightBloom ? queryBackground : "transparent"}
           borderWidth={queryBorderWidth}
           rounded={queryRounded}
           glow={queryGlow}
           borderAspect={queryBorderAspect}
           canvasAspect={exportWidth / Math.max(1, exportHeight)}
+          appearance={appearance}
         />
       </div>
     );
@@ -403,8 +466,13 @@ export default function App() {
       text,
       fontSize,
       fontFamily,
-      keepFrames,
+      interactionTrack,
       pngCompression,
+      keepFrames,
+      material: appearance.material.preset,
+      materialEnabled: appearance.enabled,
+      frontTexture: appearance.frontTexture,
+      backTexture: appearance.backTexture,
     }),
     [
       componentId,
@@ -431,8 +499,13 @@ export default function App() {
       text,
       fontSize,
       fontFamily,
-      keepFrames,
+      interactionTrack,
       pngCompression,
+      keepFrames,
+      appearance.material.preset,
+      appearance.enabled,
+      appearance.frontTexture,
+      appearance.backTexture,
     ],
   );
   const activeColorProfile = colorProfileFor(colorTarget);
@@ -442,8 +515,9 @@ export default function App() {
       colorComp: colorCorrection ? activeColorProfile : undefined,
       emissiveLift,
       unlit,
+      appearance,
     }),
-    [exportPayload, colorCorrection, activeColorProfile, emissiveLift, unlit],
+    [exportPayload, colorCorrection, activeColorProfile, emissiveLift, unlit, appearance],
   );
   const colorMismatch =
     (activeColorProfile.calibratedUnlit !== null &&
@@ -498,6 +572,7 @@ export default function App() {
     setText(next.text ?? "");
     setFontSize(next.fontSize ?? 80);
     setFontFamily(next.fontFamily ?? "PingFang SC");
+    setInteractionTrack([]);
     setDuration(next.duration);
     setTime(0);
   };
@@ -633,13 +708,65 @@ export default function App() {
     setWidth(aspectRatio === "1:1" ? tall : wide);
     setHeight(tall);
   };
+  const chooseMaterial = (preset: MaterialPresetId) =>
+    updateAppearance((current) => ({
+      ...current,
+      material: materialFromPreset(preset),
+    }));
+  const loadTexture = (side: "frontTexture" | "backTexture", file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () =>
+      updateAppearance((current) => ({
+        ...current,
+        [side]: typeof reader.result === "string" ? reader.result : undefined,
+      }));
+    reader.readAsDataURL(file);
+  };
+  const startInteractionRecording = () => {
+    setInteractionTrack([]);
+    interactionStartedRef.current = performance.now();
+    interactionPressedRef.current = false;
+    lastInteractionSampleRef.current = -1;
+    setTime(0);
+    setPlaying(true);
+    setRecordingInteraction(true);
+  };
+  const stopInteractionRecording = () => {
+    setRecordingInteraction(false);
+    interactionPressedRef.current = false;
+  };
+  const recordInteraction = (
+    event: React.PointerEvent<HTMLDivElement>,
+    active: boolean,
+    pressed = interactionPressedRef.current,
+    force = false,
+  ) => {
+    if (!recordingInteraction) return;
+    const now = performance.now();
+    const relative = (now - interactionStartedRef.current) / 1000;
+    if (!force && relative - lastInteractionSampleRef.current < 1 / 60) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    lastInteractionSampleRef.current = relative;
+    setInteractionTrack((current) => [
+      ...current,
+      {
+        time: relative,
+        x: Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width))),
+        y: Math.max(0, Math.min(1, (event.clientY - rect.top) / Math.max(1, rect.height))),
+        active,
+        pressed,
+      },
+    ]);
+  };
   return (
     <main className="app">
       <section className="stage">
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260909X19</span>
+            <span className="version">260909X26</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -663,9 +790,20 @@ export default function App() {
                 : { background, backgroundImage: "none" }),
             }}
             data-testid="render-stage"
+            onPointerEnter={(event) => recordInteraction(event, true, false, true)}
+            onPointerMove={(event) => recordInteraction(event, true)}
+            onPointerDown={(event) => {
+              interactionPressedRef.current = true;
+              recordInteraction(event, true, true, true);
+            }}
+            onPointerUp={(event) => {
+              interactionPressedRef.current = false;
+              recordInteraction(event, true, false, true);
+            }}
+            onPointerLeave={(event) => recordInteraction(event, false, false, true)}
           >
             <MotionRenderer
-              background="transparent"
+              background={isLightBloom ? background : "transparent"}
               baseColor={baseColor}
               accentColor={accentColor}
               speed={speed}
@@ -675,6 +813,7 @@ export default function App() {
               text={text}
               fontSize={fontSize}
               fontFamily={fontFamily}
+              interactionTrack={interactionTrack}
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
@@ -682,12 +821,26 @@ export default function App() {
               canvasAspect={aspectRatio === "1:1" ? 1 : 16 / 9}
               timeSeconds={previewTime}
               loopDuration={duration}
+              appearance={appearance}
             />
           </div>
         </div>
         <div className="stage-dock">
           <span>{componentDefinition.name} · 双指上下滑动缩放</span>
           <div className="stage-tools">
+            {supportsInteractionRecording && (
+              <>
+                <button
+                  className={`btn ${recordingInteraction ? "recording" : ""}`}
+                  onClick={recordingInteraction ? stopInteractionRecording : startInteractionRecording}
+                >
+                  {recordingInteraction ? "停止录制" : "录制交互"}
+                </button>
+                {interactionTrack.length > 0 && !recordingInteraction && (
+                  <button className="btn" onClick={() => { setTime(0); setPlaying(true); }}>重放交互</button>
+                )}
+              </>
+            )}
             <button
               className="btn"
               onClick={() => setPlaying((value) => !value)}
@@ -724,8 +877,15 @@ export default function App() {
                 <input
                   aria-label="主体颜色"
                   type="color"
-                  value={baseColor}
-                  onChange={(event) => setBaseColor(event.target.value)}
+                  value={hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor}
+                  onChange={(event) => {
+                    setBaseColor(event.target.value);
+                    if (hasMaterialAppearance && appearance.enabled)
+                      updateAppearance((current) => ({
+                        ...current,
+                        material: { ...current.material, color: event.target.value },
+                      }));
+                  }}
                 />
               </label>
               <label className="field">
@@ -738,6 +898,52 @@ export default function App() {
                 />
               </label>
             </div>
+            {hasMaterialAppearance && (
+              <div className="appearance-panel">
+                <label className="check-row material-toggle">
+                  <input
+                    type="checkbox"
+                    checked={appearance.enabled}
+                    onChange={(event) => updateAppearance((current) => ({ ...current, enabled: event.target.checked }))}
+                  />
+                  材质
+                </label>
+                {appearance.enabled && <>
+                <div className="material-grid" role="group" aria-label="材质预设">
+                  {(Object.keys(MATERIAL_PRESETS) as MaterialPresetId[]).map((id) => (
+                    <button
+                      key={id}
+                      className={`material-option ${appearance.material.preset === id ? "active" : ""}`}
+                      onClick={() => chooseMaterial(id)}
+                    >
+                      <i style={{ background: MATERIAL_PRESETS[id].color }} />
+                      <span>{MATERIAL_PRESETS[id].label}</span>
+                    </button>
+                  ))}
+                </div>
+                <details className="material-advanced">
+                  <summary>高级材质</summary>
+                  <Slider label="金属感" value={Math.round(appearance.material.metallic * 100)} min={0} max={100} step={1} display={`${Math.round(appearance.material.metallic * 100)}%`} onChange={(value) => updateAppearance((current) => ({ ...current, material: { ...current.material, metallic: value / 100 } }))} />
+                  <Slider label="粗糙度" value={Math.round(appearance.material.roughness * 100)} min={0} max={100} step={1} display={`${Math.round(appearance.material.roughness * 100)}%`} onChange={(value) => updateAppearance((current) => ({ ...current, material: { ...current.material, roughness: value / 100 } }))} />
+                  <Slider label="不透明度" value={Math.round(appearance.material.opacity * 100)} min={5} max={100} step={1} display={`${Math.round(appearance.material.opacity * 100)}%`} onChange={(value) => updateAppearance((current) => ({ ...current, material: { ...current.material, opacity: value / 100 } }))} />
+                </details>
+                {(componentId === "coin-loader" || componentId === "disc-split") && (
+                  <div className="texture-grid">
+                    {(["frontTexture", "backTexture"] as const).map((side) => (
+                      <label className="texture-slot" key={side}>
+                        <span>{side === "frontTexture" ? "正面贴图" : "反面贴图"}</span>
+                        {appearance[side] ? <img src={appearance[side]} alt="" /> : <b>+</b>}
+                        <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => loadTexture(side, event.target.files?.[0])} />
+                      </label>
+                    ))}
+                    {(appearance.frontTexture || appearance.backTexture) && (
+                      <button className="btn clear-textures" onClick={() => updateAppearance((current) => ({ ...current, frontTexture: undefined, backTexture: undefined }))}>清除贴图</button>
+                    )}
+                  </div>
+                )}
+                </>}
+              </div>
+            )}
             {isBorderComponent && (
               <>
                 <Slider
@@ -799,6 +1005,17 @@ export default function App() {
                   onChange={setGlow}
                 />
               </>
+            )}
+            {isLightBloom && (
+              <Slider
+                label="动画速度"
+                value={speed}
+                min={1}
+                max={200}
+                step={1}
+                display={speed.toFixed(0)}
+                onChange={setSpeed}
+              />
             )}
             {isDiscSplit && (
               <>
@@ -1050,6 +1267,14 @@ export default function App() {
             <label className="check-row">
               <input
                 type="checkbox"
+                checked={keepFrames}
+                onChange={(event) => setKeepFrames(event.target.checked)}
+              />
+              保留透明 PNG 序列
+            </label>
+            <label className="check-row">
+              <input
+                type="checkbox"
                 checked={loop}
                 onChange={(event) => setLoop(event.target.checked)}
               />
@@ -1152,7 +1377,8 @@ export default function App() {
                 />
               </label>
             </div>
-            <div className="opts four">
+            <h3 className="field-heading">背景颜色</h3>
+            <div className="opts four background-options">
               <button
                 className={`opt ${background === "transparent" ? "active" : ""}`}
                 onClick={() => setBackground("transparent")}
@@ -1186,10 +1412,10 @@ export default function App() {
             <label className="check-row">
               <input
                 type="checkbox"
-                checked={keepFrames}
-                onChange={(event) => setKeepFrames(event.target.checked)}
+                checked={pngCompression}
+                onChange={(event) => setPngCompression(event.target.checked)}
               />
-              保留透明 PNG 序列
+              无损压缩 PNG 帧（MOV 与 PNG 动图）
             </label>
           </section>
           <section className="export-block">
@@ -1207,14 +1433,6 @@ export default function App() {
             >
               {job.running ? "正在导出…" : "导出 PNG 动图"}
             </button>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={pngCompression}
-                onChange={(event) => setPngCompression(event.target.checked)}
-              />
-              无损压缩 PNG 动图
-            </label>
             {job.running && (
               <button className="btn cancel" onClick={cancelExport}>
                 取消导出

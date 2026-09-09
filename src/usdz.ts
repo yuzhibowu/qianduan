@@ -1,5 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 import { compensateToLinear, srgbToLinear, type ColorComp } from "./lib/color";
+import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "./appearance";
 
 export type CoinUsdzSettings = {
   duration: number;
@@ -14,6 +15,7 @@ export type CoinUsdzSettings = {
   colorComp?: ColorComp;
   emissiveLift?: number;
   unlit?: boolean;
+  appearance?: SurfaceAppearance;
 };
 export type DiscSplitUsdzSettings = CoinUsdzSettings & {
   innerRadius: number;
@@ -101,6 +103,67 @@ function geometry(segments = 64) {
 const tuples = (v: number[][]) =>
   `[${v.map((a) => `(${a.map((n) => Number(n.toFixed(8))).join(",")})`).join(",")}]`;
 const list = (v: number[]) => `[${v.join(",")}]`;
+const dataUrlAsset = (value: string | undefined, fallback: string) => {
+  if (!value) return null;
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/i.exec(value);
+  if (!match) return null;
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const extension = match[1].toLowerCase() === "image/jpeg" ? "jpg" : match[1].split("/")[1];
+  return { name: `textures/${fallback}.${extension}`, bytes };
+};
+const textureMaterialDefinition = (
+  root: string,
+  name: string,
+  asset: string,
+  appearance: SurfaceAppearance["material"],
+) => `def Material "${name}" {
+    token outputs:surface.connect = </${root}/${name}/Surface.outputs:surface>
+    def Shader "Surface" {
+      uniform token info:id = "UsdPreviewSurface"
+      color3f inputs:diffuseColor.connect = </${root}/${name}/Texture.outputs:rgb>
+      float inputs:metallic = ${appearance.metallic.toFixed(4)}
+      float inputs:roughness = ${appearance.roughness.toFixed(4)}
+      float inputs:opacity = ${appearance.opacity.toFixed(4)}
+      float inputs:ior = ${appearance.ior.toFixed(4)}
+      token outputs:surface
+    }
+    def Shader "Texture" {
+      uniform token info:id = "UsdUVTexture"
+      asset inputs:file = @${asset}@
+      token inputs:sourceColorSpace = "sRGB"
+      float2 inputs:st.connect = </${root}/${name}/Primvar.outputs:result>
+      float3 outputs:rgb
+    }
+    def Shader "Primvar" {
+      uniform token info:id = "UsdPrimvarReader_float2"
+      token inputs:varname = "st"
+      float2 outputs:result
+    }
+  }`;
+const subset = (name: string, faces: number[], materialPath: string) =>
+  faces.length
+    ? `def GeomSubset "${name}" (prepend apiSchemas = ["MaterialBindingAPI"]) {
+    uniform token elementType = "face"
+    uniform token familyName = "materialBind"
+    int[] indices = ${list(faces)}
+    rel material:binding = <${materialPath}>
+  }`
+    : "";
+const alignedUsdz = (files: { name: string; data: Uint8Array }[]) => {
+  let offset = 0;
+  const entries: Record<
+    string,
+    [Uint8Array, { extra: Record<number, Uint8Array> }]
+  > = {};
+  files.forEach(({ name, data }) => {
+    const padding = (64 - ((offset + 30 + name.length + 4) % 64)) % 64;
+    entries[name] = [data, { extra: { 6530: new Uint8Array(padding) } }];
+    offset += 30 + name.length + 4 + padding + data.length;
+  });
+  return zipSync(entries, { level: 0 });
+};
 const linearRgb = (hex: string) => {
   const n = Number.parseInt(hex.slice(1), 16);
   return [
@@ -109,14 +172,45 @@ const linearRgb = (hex: string) => {
     srgbToLinear((n & 255) / 255),
   ] as [number, number, number];
 };
+const materialValues = (s: CoinUsdzSettings) => {
+  const material = s.appearance?.enabled
+    ? s.appearance.material
+    : { ...DEFAULT_APPEARANCE.material, color: s.baseColor, metallic: 1, roughness: 0.2, opacity: 1 };
+  const color =
+    (s.colorComp ? compensateToLinear(material.color, s.colorComp) : null) ??
+    linearRgb(material.color || s.baseColor);
+  return { material, color };
+};
+const materialDefinition = (
+  root: string,
+  name: string,
+  color: number[],
+  appearance: SurfaceAppearance["material"],
+) => `def Material "${name}" {
+    token outputs:surface.connect = </${root}/${name}/Surface.outputs:surface>
+    def Shader "Surface" {
+      uniform token info:id = "UsdPreviewSurface"
+      color3f inputs:diffuseColor = (${color.map((v) => v.toFixed(6)).join(",")})
+      color3f inputs:emissiveColor = (0,0,0)
+      float inputs:metallic = ${appearance.metallic.toFixed(4)}
+      float inputs:roughness = ${appearance.roughness.toFixed(4)}
+      float inputs:opacity = ${appearance.opacity.toFixed(4)}
+      float inputs:ior = ${appearance.ior.toFixed(4)}
+      token outputs:surface
+    }
+  }`;
 
 export function buildCoinUsdz(s: CoinUsdzSettings) {
   const frames = Math.max(1, Math.round((s.duration + s.delay) * s.fps)),
     end = frames - 1,
     g = geometry();
-  const color =
-    (s.colorComp ? compensateToLinear(s.baseColor, s.colorComp) : null) ??
-    linearRgb(s.baseColor);
+  const frontAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.frontTexture : undefined, "front"),
+    backAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.backTexture : undefined, "back"),
+    sideFaces = 64 * 2,
+    frontFaces = Array.from({ length: 64 }, (_, i) => sideFaces + i),
+    backFaces = Array.from({ length: 64 }, (_, i) => sideFaces + 64 + i),
+    uvs = g.points.map(([x, _y, z]) => [x * 0.5 + 0.5, z * 0.5 + 0.5]);
+  const { material, color } = materialValues(s);
   const unlit = Boolean(s.unlit),
     lift = unlit ? 1 : Math.max(0, Math.min(1, s.emissiveLift ?? 0));
   const diffuse = unlit ? [0, 0, 0] : color;
@@ -129,7 +223,10 @@ export function buildCoinUsdz(s: CoinUsdzSettings) {
   int[] faceVertexCounts = ${list(g.counts)}
   int[] faceVertexIndices = ${list(g.indices)}
   normal3f[] normals = ${tuples(g.normals)} (interpolation = "vertex")
+  texCoord2f[] primvars:st = ${tuples(uvs)} (interpolation = "vertex")
   rel material:binding = </CoinLoader/CoinMaterial>
+  ${frontAsset ? subset("Front", frontFaces, "/CoinLoader/FrontMaterial") : ""}
+  ${backAsset ? subset("Back", backFaces, "/CoinLoader/BackMaterial") : ""}
 }`;
   const coins = Array.from({ length: s.count }, (_, i) => {
     const angle = (i / s.count) * 360,
@@ -171,27 +268,19 @@ def Xform "CoinLoader" {
   matrix4d xformOp:transform:ring.timeSamples = ${ring}
   float3 xformOp:scale = (0.6,0.6,0.6)
   uniform token[] xformOpOrder = ["xformOp:transform:ring","xformOp:scale"]
-  def Material "CoinMaterial" {
-    token outputs:surface.connect = </CoinLoader/CoinMaterial/Surface.outputs:surface>
-    def Shader "Surface" {
-      uniform token info:id = "UsdPreviewSurface"
-      color3f inputs:diffuseColor = (${diffuse.map((v) => v.toFixed(6)).join(",")})
-      color3f inputs:emissiveColor = (${emissive.map((v) => v.toFixed(6)).join(",")})
-      float inputs:metallic = 1
-      float inputs:roughness = 0.2
-      token outputs:surface
-    }
-  }
+  ${materialDefinition("CoinLoader", "CoinMaterial", diffuse, material)}
+  ${frontAsset ? textureMaterialDefinition("CoinLoader", "FrontMaterial", frontAsset.name, material) : ""}
+  ${backAsset ? textureMaterialDefinition("CoinLoader", "BackMaterial", backAsset.name, material) : ""}
   ${coins}
 }`;
   const data = strToU8(model),
-    name = "model.usda",
-    padding = (64 - ((30 + name.length + 4) % 64)) % 64;
+    name = "model.usda";
   return {
-    bytes: zipSync(
-      { [name]: [data, { extra: { 6530: new Uint8Array(padding) } }] },
-      { level: 0 },
-    ),
+    bytes: alignedUsdz([
+      { name, data },
+      ...(frontAsset ? [{ name: frontAsset.name, data: frontAsset.bytes }] : []),
+      ...(backAsset ? [{ name: backAsset.name, data: backAsset.bytes }] : []),
+    ]),
     frames,
   };
 }
@@ -352,9 +441,12 @@ export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
     inner = Math.max(0, Math.min(90, s.innerRadius)) / 100,
     burstDistance = (0.5 * Math.max(0, Math.min(300, s.spread))) / 100;
   const g = discGeometry(count, inner, thickness);
-  const color =
-      (s.colorComp ? compensateToLinear(s.baseColor, s.colorComp) : null) ??
-      linearRgb(s.baseColor),
+  const frontAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.frontTexture : undefined, "front"),
+    backAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.backTexture : undefined, "back"),
+    facesPerBand = 2 * 4,
+    frontFaces = Array.from({ length: 32 * facesPerBand + 4 }, (_, face) => face).filter((face) => face < 32 * 8 && face % 8 < 2),
+    backFaces = Array.from({ length: 32 * facesPerBand + 4 }, (_, face) => face).filter((face) => face < 32 * 8 && face % 8 >= 2 && face % 8 < 4);
+  const { material, color } = materialValues(s),
     unlit = Boolean(s.unlit),
     lift = unlit ? 1 : Math.max(0, Math.min(1, s.emissiveLift ?? 0)),
     diffuse = unlit ? [0, 0, 0] : color,
@@ -387,20 +479,30 @@ export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
       m = mMultiply(m, mRotateX(Math.PI / 2));
       return `${frame}: ${usdMatrix(m)}`;
     }).join(",")}}`;
-  const mesh = `def Mesh "DiscMesh" (prepend apiSchemas = ["MaterialBindingAPI"]) {
+  const mesh = (pieceIndex: number) => {
+    const angle = (pieceIndex / count) * TAU,
+      uvs = g.points.map(([x, y]) => {
+        const rx = x * Math.cos(angle) - y * Math.sin(angle),
+          ry = x * Math.sin(angle) + y * Math.cos(angle);
+        return [rx * 0.5 + 0.5, ry * 0.5 + 0.5];
+      });
+    return `def Mesh "DiscMesh" (prepend apiSchemas = ["MaterialBindingAPI"]) {
   uniform token subdivisionScheme = "none"
   point3f[] points = ${tuples(g.points)}
   int[] faceVertexCounts = ${list(g.counts)}
   int[] faceVertexIndices = ${list(g.indices)}
   normal3f[] normals = ${tuples(g.normals)} (interpolation = "vertex")
+  texCoord2f[] primvars:st = ${tuples(uvs)} (interpolation = "vertex")
   rel material:binding = </DiscSplit/DiscMaterial>
-}`;
+  ${frontAsset ? subset("Front", frontFaces, "/DiscSplit/FrontMaterial") : ""}
+  ${backAsset ? subset("Back", backFaces, "/DiscSplit/BackMaterial") : ""}
+}`; };
   const pieces = Array.from(
     { length: count },
     (_, index) => `def Xform "Piece${index + 1}" {
   matrix4d xformOp:transform.timeSamples = ${samples(index)}
   uniform token[] xformOpOrder = ["xformOp:transform"]
-  ${mesh}
+  ${mesh(index)}
 }`,
   ).join("\n");
   const model = `#usda 1.0
@@ -416,27 +518,19 @@ export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
   autoPlay = true
 )
 def Xform "DiscSplit" {
-  def Material "DiscMaterial" {
-    token outputs:surface.connect = </DiscSplit/DiscMaterial/Surface.outputs:surface>
-    def Shader "Surface" {
-      uniform token info:id = "UsdPreviewSurface"
-      color3f inputs:diffuseColor = (${diffuse.map((v) => v.toFixed(6)).join(",")})
-      color3f inputs:emissiveColor = (${emissive.map((v) => v.toFixed(6)).join(",")})
-      float inputs:metallic = 1
-      float inputs:roughness = 0.2
-      token outputs:surface
-    }
-  }
+  ${materialDefinition("DiscSplit", "DiscMaterial", diffuse, material)}
+  ${frontAsset ? textureMaterialDefinition("DiscSplit", "FrontMaterial", frontAsset.name, material) : ""}
+  ${backAsset ? textureMaterialDefinition("DiscSplit", "BackMaterial", backAsset.name, material) : ""}
   ${pieces}
 }`;
   const data = strToU8(model),
-    name = "model.usda",
-    padding = (64 - ((30 + name.length + 4) % 64)) % 64;
+    name = "model.usda";
   return {
-    bytes: zipSync(
-      { [name]: [data, { extra: { 6530: new Uint8Array(padding) } }] },
-      { level: 0 },
-    ),
+    bytes: alignedUsdz([
+      { name, data },
+      ...(frontAsset ? [{ name: frontAsset.name, data: frontAsset.bytes }] : []),
+      ...(backAsset ? [{ name: backAsset.name, data: backAsset.bytes }] : []),
+    ]),
     frames,
   };
 }
@@ -491,9 +585,7 @@ export function buildGyroLoaderUsdz(s: GyroLoaderUsdzSettings) {
       0.001,
       s.duration - stagger * (count - 1) - pause,
     );
-  const color =
-      (s.colorComp ? compensateToLinear(s.baseColor, s.colorComp) : null) ??
-      linearRgb(s.baseColor),
+  const { material, color } = materialValues(s),
     unlit = Boolean(s.unlit),
     lift = unlit ? 1 : Math.max(0, Math.min(1, s.emissiveLift ?? 0)),
     diffuse = unlit ? [0, 0, 0] : color,
@@ -539,27 +631,13 @@ export function buildGyroLoaderUsdz(s: GyroLoaderUsdzSettings) {
   autoPlay = true
 )
 def Xform "GyroLoader" {
-  def Material "GyroMaterial" {
-    token outputs:surface.connect = </GyroLoader/GyroMaterial/Surface.outputs:surface>
-    def Shader "Surface" {
-      uniform token info:id = "UsdPreviewSurface"
-      color3f inputs:diffuseColor = (${diffuse.map((value) => value.toFixed(6)).join(",")})
-      color3f inputs:emissiveColor = (${emissive.map((value) => value.toFixed(6)).join(",")})
-      float inputs:metallic = 1
-      float inputs:roughness = 0.2
-      token outputs:surface
-    }
-  }
+  ${materialDefinition("GyroLoader", "GyroMaterial", diffuse, material)}
   ${rings}
 }`;
   const data = strToU8(model),
-    name = "model.usda",
-    padding = (64 - ((30 + name.length + 4) % 64)) % 64;
+    name = "model.usda";
   return {
-    bytes: zipSync(
-      { [name]: [data, { extra: { 6530: new Uint8Array(padding) } }] },
-      { level: 0 },
-    ),
+    bytes: alignedUsdz([{ name, data }]),
     frames,
   };
 }

@@ -1,6 +1,7 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL } from "@ffmpeg/util";
 import { zipSync } from "fflate";
+import type { InteractionSample } from "./interaction";
 
 export type BrowserExportFormat = "mov" | "apng";
 
@@ -29,8 +30,13 @@ export type BrowserExportSettings = {
   text: string;
   fontSize: number;
   fontFamily: string;
+  interactionTrack: InteractionSample[];
   pngCompression: boolean;
   keepFrames: boolean;
+  material: string;
+  materialEnabled: boolean;
+  frontTexture?: string;
+  backTexture?: string;
 };
 
 export type BrowserExportProgress = {
@@ -157,7 +163,12 @@ async function renderFrames(
     text: settings.text,
     fontSize: String(settings.fontSize),
     fontFamily: settings.fontFamily,
+    interaction: JSON.stringify(settings.interactionTrack),
     canvasAspect: String(settings.width / Math.max(1, settings.height)),
+    material: settings.material,
+    materialEnabled: String(settings.materialEnabled),
+    ...(settings.frontTexture ? { frontTexture: settings.frontTexture } : {}),
+    ...(settings.backTexture ? { backTexture: settings.backTexture } : {}),
   });
   const frame = document.createElement("iframe");
   frame.title = "离屏逐帧渲染器";
@@ -269,22 +280,12 @@ export async function exportInBrowser(
   let ffmpeg: FFmpeg | null = null;
   try {
     if (settings.keepFrames) {
-      report({
-        stage: "Packaging PNG Sequence",
-        frame: frames.length,
-        totalFrames: frames.length,
-        progress: 73,
-      });
+      report({ stage: "Packaging PNG Sequence", frame: frames.length, totalFrames: frames.length, progress: 73 });
       const entries: Record<string, Uint8Array> = {};
       for (let index = 0; index < frames.length; index += 1)
-        entries[
-          `OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`
-        ] = new Uint8Array(await frames[index].arrayBuffer());
+        entries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await frames[index].arrayBuffer());
       const archive = zipSync(entries, { level: 0 });
-      download(
-        new Blob([archive as BlobPart], { type: "application/zip" }),
-        `OriginKit-${settings.componentName}-${Date.now()}-png-sequence.zip`,
-      );
+      download(new Blob([archive as BlobPart], { type: "application/zip" }), `OriginKit-${settings.componentName}-${Date.now()}-png-sequence.zip`);
     }
     report({
       stage: "Loading Encoder",
@@ -298,15 +299,36 @@ export async function exportInBrowser(
     );
     for (let index = 0; index < frames.length; index += 1) {
       cancelled(signal);
-      await wait(
-        ffmpeg.writeFile(
-          names[index],
-          new Uint8Array(await frames[index].arrayBuffer()),
-        ),
-        signal,
-      );
+      const bytes = new Uint8Array(await frames[index].arrayBuffer());
+      if (format === "mov" && settings.pngCompression) {
+        const rawName = `raw_${String(index).padStart(5, "0")}.png`;
+        await wait(ffmpeg.writeFile(rawName, bytes), signal);
+        const compressed = await wait(
+          ffmpeg.exec([
+            "-y",
+            "-i",
+            rawName,
+            "-frames:v",
+            "1",
+            "-compression_level",
+            "9",
+            "-pred",
+            "mixed",
+            names[index],
+          ]),
+          signal,
+        );
+        await ffmpeg.deleteFile(rawName);
+        if (compressed !== 0)
+          throw new Error(`第 ${index + 1} 帧 PNG 压缩失败`);
+      } else {
+        await wait(ffmpeg.writeFile(names[index], bytes), signal);
+      }
       report({
-        stage: "Preparing Encoder",
+        stage:
+          format === "mov" && settings.pngCompression
+            ? "Compressing PNG Frames"
+            : "Preparing Encoder",
         frame: index + 1,
         totalFrames: frames.length,
         progress: 74 + ((index + 1) / frames.length) * 10,

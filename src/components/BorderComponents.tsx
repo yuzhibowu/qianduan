@@ -1,5 +1,6 @@
 import { PulsingBorder } from "@paper-design/shaders-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import type { InteractionSample } from "../interaction";
 
 export type BorderRendererProps = {
   baseColor: string;
@@ -29,6 +30,8 @@ export type BorderRendererProps = {
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  interactionTrack?: InteractionSample[];
+  previewScale?: number;
 };
 type Size = { width: number; height: number };
 const clamp = (v: number, min: number, max: number) =>
