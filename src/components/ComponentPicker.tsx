@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { MotionComponentDefinition } from "../component-registry";
+import type { BorderRendererProps } from "./BorderComponents";
 
 type Option = MotionComponentDefinition;
 
@@ -7,6 +8,51 @@ type Props = {
   value: string;
   options: Option[];
   onChange: (value: string) => void;
+};
+
+const PREVIEW_PRESETS: Record<string, Partial<BorderRendererProps>> = {
+  "coin-loader": { baseColor: "#ffffff", accentColor: "#ffffff", speed: 100 },
+  "disc-split": { baseColor: "#ffffff", accentColor: "#ffffff", speed: 50 },
+  "gyro-loader": { baseColor: "#ffffff", accentColor: "#ffffff", speed: 50 },
+  typewriter: { baseColor: "#ffffff", accentColor: "#ffffff", speed: 50 },
+  "text-ring": { baseColor: "#ffffff", accentColor: "#ffffff", speed: 20 },
+  "shiny-pill": { baseColor: "#ffffff", accentColor: "#78ff83", speed: 1.5 },
+  "glow-border": {
+    baseColor: "#00edff",
+    accentColor: "#00ffe8",
+    speed: 10,
+    borderWidth: 5,
+    rounded: 0,
+    glow: 50,
+  },
+  "neon-border": {
+    baseColor: "#cc9149",
+    accentColor: "#cc9149",
+    speed: 16,
+    borderWidth: 6,
+    rounded: 24,
+    glow: 100,
+  },
+  "pulsating-border": {
+    baseColor: "#f2244f",
+    accentColor: "#4da6e6",
+    speed: 1,
+    borderWidth: 5,
+    rounded: 35,
+    glow: 50,
+  },
+};
+
+const PREVIEW_DURATIONS: Record<string, number> = {
+  "coin-loader": 10.472,
+  "disc-split": 3,
+  "gyro-loader": 2.45,
+  typewriter: 12,
+  "text-ring": 20,
+  "shiny-pill": 1.5,
+  "glow-border": 10,
+  "neon-border": 9.474,
+  "pulsating-border": 10,
 };
 
 function AnimatedPreview({ option }: { option: Option }) {
@@ -26,18 +72,22 @@ function AnimatedPreview({ option }: { option: Option }) {
   const isTypewriter = option.id === "typewriter";
   const isTextRing = option.id === "text-ring";
   const isShiny = option.id === "shiny-pill";
+  const preset = PREVIEW_PRESETS[option.id] ?? PREVIEW_PRESETS["coin-loader"];
   return (
     <div className="component-picker-preview-stage">
       <Renderer
-        baseColor="#ffffff"
-        accentColor={isShiny ? "#78ff83" : "#ffffff"}
-        speed={50}
+        baseColor={preset.baseColor ?? "#ffffff"}
+        accentColor={preset.accentColor ?? "#ffffff"}
+        speed={preset.speed ?? 50}
         distance={20}
         timeSeconds={timeSeconds}
-        loopDuration={isTypewriter ? 12 : isTextRing ? 20 : isShiny ? 1.5 : isGyro ? 2.45 : 4}
+        loopDuration={PREVIEW_DURATIONS[option.id] ?? 4}
         background="transparent"
         canvasAspect={16 / 9}
         borderAspect={16 / 9}
+        borderWidth={preset.borderWidth}
+        rounded={preset.rounded}
+        glow={preset.glow}
         coins={
           isGyro
             ? { count: 4, coinSize: 100, spread: 150, ringSpeed: 500 }
