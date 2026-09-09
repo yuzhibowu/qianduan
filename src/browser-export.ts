@@ -28,6 +28,7 @@ export type BrowserExportSettings = {
   innerRadius: number;
   text: string;
   fontSize: number;
+  fontFamily: string;
   pngCompression: boolean;
   keepFrames: boolean;
 };
@@ -155,6 +156,7 @@ async function renderFrames(
     innerRadius: String(settings.innerRadius),
     text: settings.text,
     fontSize: String(settings.fontSize),
+    fontFamily: settings.fontFamily,
     canvasAspect: String(settings.width / Math.max(1, settings.height)),
   });
   const frame = document.createElement("iframe");

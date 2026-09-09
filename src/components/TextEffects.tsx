@@ -9,6 +9,7 @@ type TextEffectProps = {
   background: string;
   text?: string;
   fontSize?: number;
+  fontFamily?: string;
 };
 
 function centered(background: string): CSSProperties {
@@ -31,13 +32,14 @@ export function ShinyPill({
   background,
   text = "SHINY PILL",
   fontSize = 120,
+  fontFamily = "Inter",
 }: TextEffectProps) {
   const phase =
     loopDuration > 0 ? (timeSeconds % loopDuration) / loopDuration : 0;
   const eased = phase < 0.5 ? 2 * phase * phase : 1 - (-2 * phase + 2) ** 2 / 2;
   const maskPosition = `${200 - eased * 300}%`;
   const textStyle: CSSProperties = {
-    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+    fontFamily: `'${fontFamily}', ui-sans-serif, system-ui, sans-serif`,
     fontSize: `clamp(28px, ${fontSize / 12}vw, ${fontSize}px)`,
     fontWeight: 700,
     letterSpacing: "-0.01em",
@@ -81,6 +83,7 @@ export function Typewriter({
   background,
   text = "Interfaces|Experiences|Interactions|Products",
   fontSize = 80,
+  fontFamily = "Inter",
 }: TextEffectProps) {
   const phrases = text
     .split("|")
@@ -116,7 +119,7 @@ export function Typewriter({
       <div
         style={{
           color: baseColor,
-          fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+          fontFamily: `'${fontFamily}', ui-sans-serif, system-ui, sans-serif`,
           fontSize: `clamp(28px, ${fontSize / 12}vw, ${fontSize}px)`,
           lineHeight: 1.4,
           letterSpacing: "-0.025em",
@@ -149,6 +152,7 @@ export function TextRing({
   background,
   text = "CIRCULAR|TEXT",
   fontSize = 24,
+  fontFamily = "Inter",
 }: TextEffectProps) {
   const words = text.split("|").map((word) => word.trim()).filter(Boolean);
   const phrase = `${(words.length ? words : ["CIRCULAR", "TEXT"]).join(" ⁕ ")} ⁕ `;
@@ -156,7 +160,7 @@ export function TextRing({
   const layout = useMemo(() => {
     const circumference = Math.PI * Math.max(8, diameter - fontSize * 1.1);
     const context = document.createElement("canvas").getContext("2d");
-    if (context) context.font = `900 ${fontSize}px Inter, sans-serif`;
+    if (context) context.font = `900 ${fontSize}px '${fontFamily}', sans-serif`;
     const unit = Array.from(phrase);
     const unitWidth = unit.reduce(
       (sum, character) => sum + (context?.measureText(character).width ?? fontSize * 0.55),
@@ -175,7 +179,7 @@ export function TextRing({
       offset += widths[index] + spacing;
       return { character, angle };
     });
-  }, [diameter, fontSize, phrase]);
+  }, [diameter, fontFamily, fontSize, phrase]);
   const rotation = ((timeSeconds / Math.max(0.001, loopDuration)) * 360) % 360;
   return (
     <div className="motion-root" style={centered(background)}>
@@ -200,7 +204,7 @@ export function TextRing({
                 position: "absolute",
                 left: "50%",
                 top: 0,
-                fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+                fontFamily: `'${fontFamily}', ui-sans-serif, system-ui, sans-serif`,
                 fontSize,
                 fontWeight: 900,
                 lineHeight: 1,

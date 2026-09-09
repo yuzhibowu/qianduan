@@ -34,6 +34,7 @@ export type MotionComponentDefinition = {
       };
       text?: string;
       fontSize?: number;
+      fontFamily?: string;
     }
   >;
   exportCapabilities: ExportCapability[];

@@ -11,6 +11,7 @@ import { DEFAULT_COMP, FREEFORM_COMP, type ColorComp } from "./lib/color";
 import { componentRegistry, getMotionComponent } from "./component-registry";
 import { cancelBrowserExport, exportInBrowser } from "./browser-export";
 import ComponentPicker from "./components/ComponentPicker";
+import LocalFontPicker from "./components/LocalFontPicker";
 
 type ColorTarget = "keynote" | "freeform";
 type ComponentControls = {
@@ -29,6 +30,7 @@ type ComponentControls = {
   innerRadius: number;
   text?: string;
   fontSize?: number;
+  fontFamily?: string;
   duration: number;
 };
 
@@ -114,6 +116,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     innerRadius: 31,
     text: "Interfaces|Experiences|Interactions|Products",
     fontSize: 80,
+    fontFamily: "PingFang SC",
     duration: 12,
   },
   "text-ring": {
@@ -132,6 +135,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     innerRadius: 31,
     text: "CIRCULAR|TEXT",
     fontSize: 24,
+    fontFamily: "PingFang SC",
     duration: 20,
   },
   "shiny-pill": {
@@ -150,6 +154,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     innerRadius: 31,
     text: "SHINY PILL",
     fontSize: 120,
+    fontFamily: "PingFang SC",
     duration: 1.5,
   },
   "glow-border": {
@@ -240,6 +245,8 @@ export default function App() {
   const queryFontSize = Number(
     query.get("fontSize") ?? queryDefaults.fontSize ?? 80,
   );
+  const queryFontFamily =
+    query.get("fontFamily") ?? queryDefaults.fontFamily ?? "PingFang SC";
   const [componentId, setComponentId] = useState(queryComponent);
   const [exportFrameTime, setExportFrameTime] = useState(exportTime);
   const [playing, setPlaying] = useState(true);
@@ -259,6 +266,7 @@ export default function App() {
   const [innerRadius, setInnerRadius] = useState(queryInnerRadius);
   const [text, setText] = useState(queryText);
   const [fontSize, setFontSize] = useState(queryFontSize);
+  const [fontFamily, setFontFamily] = useState(queryFontFamily);
   const [width, setWidth] = useState(exportWidth);
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
@@ -351,6 +359,7 @@ export default function App() {
           }}
           text={queryText}
           fontSize={queryFontSize}
+          fontFamily={queryFontFamily}
           timeSeconds={Number.isFinite(exportFrameTime) ? exportFrameTime : 0}
           loopDuration={queryDuration}
           background="transparent"
@@ -393,6 +402,7 @@ export default function App() {
       innerRadius,
       text,
       fontSize,
+      fontFamily,
       keepFrames,
       pngCompression,
     }),
@@ -420,6 +430,7 @@ export default function App() {
       innerRadius,
       text,
       fontSize,
+      fontFamily,
       keepFrames,
       pngCompression,
     ],
@@ -463,6 +474,7 @@ export default function App() {
       innerRadius,
       text,
       fontSize,
+      fontFamily,
       duration,
     };
     const next =
@@ -485,6 +497,7 @@ export default function App() {
     setInnerRadius(next.innerRadius);
     setText(next.text ?? "");
     setFontSize(next.fontSize ?? 80);
+    setFontFamily(next.fontFamily ?? "PingFang SC");
     setDuration(next.duration);
     setTime(0);
   };
@@ -626,7 +639,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260909X18</span>
+            <span className="version">260909X19</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -661,6 +674,7 @@ export default function App() {
               disc={{ count, innerRadius, thickness: coinSize, burst: spread }}
               text={text}
               fontSize={fontSize}
+              fontFamily={fontFamily}
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
@@ -927,6 +941,7 @@ export default function App() {
                   display={`${fontSize}px`}
                   onChange={setFontSize}
                 />
+                <LocalFontPicker value={fontFamily} onChange={setFontFamily} />
                 {componentId === "shiny-pill" && (
                   <Slider
                     label="扫光周期"

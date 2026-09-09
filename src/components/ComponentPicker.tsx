@@ -96,6 +96,7 @@ function AnimatedPreview({ option }: { option: Option }) {
         disc={{ count: 6, innerRadius: 22, thickness: 100, burst: 100 }}
         text={isTypewriter ? "Interfaces|Experiences" : isTextRing ? "CIRCULAR|TEXT" : "SHINY PILL"}
         fontSize={isTypewriter ? 38 : isTextRing ? 12 : 42}
+        fontFamily="PingFang SC"
       />
     </div>
   );
