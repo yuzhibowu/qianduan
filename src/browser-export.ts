@@ -25,6 +25,7 @@ export type BrowserExportSettings = {
   rounded: number;
   glow: number;
   borderAspect: number;
+  innerRadius: number;
   pngCompression: boolean;
   keepFrames: boolean;
 };
@@ -149,6 +150,7 @@ async function renderFrames(
     rounded: String(settings.rounded),
     glow: String(settings.glow),
     borderAspect: String(settings.borderAspect),
+    innerRadius: String(settings.innerRadius),
     canvasAspect: String(settings.width / Math.max(1, settings.height)),
   });
   const frame = document.createElement("iframe");

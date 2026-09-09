@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Slider from "./components/Slider";
 import { DEFAULT_LOOP_DURATION, rotationsPerCycle } from "./time";
-import { buildCoinUsdz, downloadUsdz } from "./usdz";
+import { buildCoinUsdz, buildDiscSplitUsdz, downloadUsdz } from "./usdz";
 import { DEFAULT_COMP, FREEFORM_COMP, type ColorComp } from "./lib/color";
 import { componentRegistry, getMotionComponent } from "./component-registry";
 import { cancelBrowserExport, exportInBrowser } from "./browser-export";
@@ -20,6 +20,7 @@ type ComponentControls = {
   rounded: number;
   glow: number;
   borderAspect: number;
+  innerRadius: number;
   duration: number;
 };
 
@@ -54,7 +55,24 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 35,
     glow: 50,
     borderAspect: 16 / 9,
+    innerRadius: 31,
     duration: DEFAULT_LOOP_DURATION,
+  },
+  "disc-split": {
+    baseColor: "#FFFFFF",
+    accentColor: "#FFFFFF",
+    speed: 50,
+    ringSpeed: 50,
+    distance: 20,
+    count: 6,
+    coinSize: 90,
+    spread: 71,
+    borderWidth: 5,
+    rounded: 35,
+    glow: 50,
+    borderAspect: 16 / 9,
+    innerRadius: 31,
+    duration: 3,
   },
   "glow-border": {
     baseColor: "#00EDFF",
@@ -69,6 +87,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 0,
     glow: 50,
     borderAspect: 16 / 9,
+    innerRadius: 31,
     duration: BORDER_DEFAULT_DURATIONS["glow-border"],
   },
   "neon-border": {
@@ -84,6 +103,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 24,
     glow: 100,
     borderAspect: 16 / 9,
+    innerRadius: 31,
     duration: BORDER_DEFAULT_DURATIONS["neon-border"],
   },
   "pulsating-border": {
@@ -99,6 +119,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 35,
     glow: 50,
     borderAspect: 16 / 9,
+    innerRadius: 31,
     duration: BORDER_DEFAULT_DURATIONS["pulsating-border"],
   },
 };
@@ -113,22 +134,30 @@ export default function App() {
   const exportTime = Number(query.get("time") ?? 0);
   const exportWidth = Number(query.get("width") ?? 1920);
   const exportHeight = Number(query.get("height") ?? 1080);
-  const queryBaseColor = query.get("baseColor") ?? "#FFFFFF";
-  const queryAccentColor = query.get("accentColor") ?? "#FFFFFF";
-  const querySpeed = Number(query.get("speed") ?? 100);
-  const queryRingSpeed = Number(query.get("ringSpeed") ?? 50);
-  const queryDistance = Number(query.get("distance") ?? 20);
-  const queryCount = Number(query.get("count") ?? 8);
-  const queryCoinSize = Number(query.get("coinSize") ?? 100);
-  const querySpread = Number(query.get("spread") ?? 100);
-  const queryBackground = query.get("background") ?? "transparent";
-  const queryDuration = Number(query.get("duration") ?? DEFAULT_LOOP_DURATION);
-  const queryFps = Number(query.get("fps") ?? 30);
   const queryComponent = query.get("component") ?? "coin-loader";
+  const queryDefaults =
+    COMPONENT_DEFAULTS[queryComponent] ?? COMPONENT_DEFAULTS["coin-loader"];
+  const queryBaseColor = query.get("baseColor") ?? queryDefaults.baseColor;
+  const queryAccentColor =
+    query.get("accentColor") ?? queryDefaults.accentColor;
+  const querySpeed = Number(query.get("speed") ?? queryDefaults.speed);
+  const queryRingSpeed = Number(
+    query.get("ringSpeed") ?? queryDefaults.ringSpeed,
+  );
+  const queryDistance = Number(query.get("distance") ?? queryDefaults.distance);
+  const queryCount = Number(query.get("count") ?? queryDefaults.count);
+  const queryCoinSize = Number(query.get("coinSize") ?? queryDefaults.coinSize);
+  const querySpread = Number(query.get("spread") ?? queryDefaults.spread);
+  const queryBackground = query.get("background") ?? "transparent";
+  const queryDuration = Number(query.get("duration") ?? queryDefaults.duration);
+  const queryFps = Number(query.get("fps") ?? 30);
   const queryBorderWidth = Number(query.get("borderWidth") ?? 5);
   const queryRounded = Number(query.get("rounded") ?? 35);
   const queryGlow = Number(query.get("glow") ?? 50);
   const queryBorderAspect = Number(query.get("borderAspect") ?? 16 / 9);
+  const queryInnerRadius = Number(
+    query.get("innerRadius") ?? queryDefaults.innerRadius,
+  );
   const [componentId, setComponentId] = useState(queryComponent);
   const [exportFrameTime, setExportFrameTime] = useState(exportTime);
   const [playing, setPlaying] = useState(true);
@@ -145,6 +174,7 @@ export default function App() {
   const [rounded, setRounded] = useState(queryRounded);
   const [glow, setGlow] = useState(queryGlow);
   const [borderAspect, setBorderAspect] = useState(queryBorderAspect);
+  const [innerRadius, setInnerRadius] = useState(queryInnerRadius);
   const [width, setWidth] = useState(exportWidth);
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
@@ -154,7 +184,9 @@ export default function App() {
       ? queryDuration
       : queryComponent === "coin-loader"
         ? DEFAULT_LOOP_DURATION
-        : (BORDER_DEFAULT_DURATIONS[queryComponent] ?? 10),
+        : queryComponent === "disc-split"
+          ? 3
+          : (BORDER_DEFAULT_DURATIONS[queryComponent] ?? 10),
   );
   const [delay, setDelay] = useState(0);
   const [background, setBackground] = useState("transparent");
@@ -192,6 +224,12 @@ export default function App() {
   });
   const componentDefinition = getMotionComponent(componentId);
   const MotionRenderer = componentDefinition.renderer;
+  const isBorderComponent = [
+    "glow-border",
+    "neon-border",
+    "pulsating-border",
+  ].includes(componentId);
+  const isDiscSplit = componentId === "disc-split";
 
   useEffect(() => {
     if (!exportMode) return;
@@ -226,6 +264,12 @@ export default function App() {
             coinSize: queryCoinSize,
             spread: querySpread,
             ringSpeed: queryRingSpeed,
+          }}
+          disc={{
+            count: queryCount,
+            innerRadius: queryInnerRadius,
+            thickness: queryCoinSize,
+            burst: querySpread,
           }}
           timeSeconds={Number.isFinite(exportFrameTime) ? exportFrameTime : 0}
           loopDuration={queryDuration}
@@ -266,6 +310,7 @@ export default function App() {
       rounded,
       glow,
       borderAspect,
+      innerRadius,
       keepFrames,
       pngCompression,
     }),
@@ -290,6 +335,7 @@ export default function App() {
       rounded,
       glow,
       borderAspect,
+      innerRadius,
       keepFrames,
       pngCompression,
     ],
@@ -330,6 +376,7 @@ export default function App() {
       rounded,
       glow,
       borderAspect,
+      innerRadius,
       duration,
     };
     const next =
@@ -349,6 +396,7 @@ export default function App() {
     setRounded(next.rounded);
     setGlow(next.glow);
     setBorderAspect(next.borderAspect);
+    setInnerRadius(next.innerRadius);
     setDuration(next.duration);
     setTime(0);
   };
@@ -410,8 +458,13 @@ export default function App() {
     });
     try {
       await new Promise((resolve) => setTimeout(resolve, 20));
-      const result = buildCoinUsdz(usdzPayload);
-      downloadUsdz(result.bytes, `OriginKit-Coin-Loader-${Date.now()}.usdz`);
+      const result = isDiscSplit
+        ? buildDiscSplitUsdz(usdzPayload)
+        : buildCoinUsdz(usdzPayload);
+      downloadUsdz(
+        result.bytes,
+        `OriginKit-${componentDefinition.name.replaceAll(" ", "-")}-${Date.now()}.usdz`,
+      );
       setUsdzJob({
         running: false,
         outputPath: "",
@@ -485,7 +538,7 @@ export default function App() {
             OriginKit → Keynote Motion Exporter
           </strong>
           <div className="title-actions">
-            <span className="version">260909X9</span>
+            <span className="version">260909X10</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -517,6 +570,7 @@ export default function App() {
               speed={speed}
               distance={distance}
               coins={{ count, coinSize, spread, ringSpeed }}
+              disc={{ count, innerRadius, thickness: coinSize, burst: spread }}
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
@@ -587,7 +641,7 @@ export default function App() {
                 />
               </label>
             </div>
-            {componentId !== "coin-loader" && (
+            {isBorderComponent && (
               <>
                 <Slider
                   label="动画速度"
@@ -646,6 +700,67 @@ export default function App() {
                   step={1}
                   display={`${glow}%`}
                   onChange={setGlow}
+                />
+              </>
+            )}
+            {isDiscSplit && (
+              <>
+                <Slider
+                  label="动画速度"
+                  value={speed}
+                  min={0}
+                  max={100}
+                  step={1}
+                  display={speed.toFixed(0)}
+                  onChange={(value) => {
+                    setSpeed(value);
+                    if (value > 0) setDuration(150 / value);
+                  }}
+                />
+                <Slider
+                  label="圆盘分块"
+                  value={count}
+                  min={2}
+                  max={12}
+                  step={1}
+                  display={String(count)}
+                  onChange={setCount}
+                />
+                <Slider
+                  label="中心孔径"
+                  value={innerRadius}
+                  min={0}
+                  max={90}
+                  step={1}
+                  display={`${innerRadius}%`}
+                  onChange={setInnerRadius}
+                />
+                <Slider
+                  label="圆盘厚度"
+                  value={coinSize}
+                  min={10}
+                  max={400}
+                  step={1}
+                  display={`${coinSize}%`}
+                  onChange={setCoinSize}
+                />
+                <Slider
+                  label="爆开距离"
+                  value={spread}
+                  min={0}
+                  max={300}
+                  step={1}
+                  display={`${spread}%`}
+                  onChange={setSpread}
+                />
+                <Slider
+                  label="镜头距离"
+                  value={distance}
+                  min={3}
+                  max={20}
+                  step={0.1}
+                  display={distance.toFixed(1)}
+                  onChange={setDistance}
                 />
               </>
             )}

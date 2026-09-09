@@ -20,6 +20,12 @@ export type BorderRendererProps = {
     spread: number;
     ringSpeed: number;
   };
+  disc?: {
+    count: number;
+    innerRadius: number;
+    thickness: number;
+    burst: number;
+  };
 };
 type Size = { width: number; height: number };
 const clamp = (v: number, min: number, max: number) =>

@@ -6,6 +6,7 @@ import {
   type BorderRendererProps,
 } from "./components/BorderComponents";
 import type { ComponentType } from "react";
+import DiscSplit from "./components/DiscSplit";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -22,6 +23,12 @@ export type MotionComponentDefinition = {
         spread: number;
         ringSpeed: number;
       };
+      disc?: {
+        count: number;
+        innerRadius: number;
+        thickness: number;
+        burst: number;
+      };
     }
   >;
   exportCapabilities: ExportCapability[];
@@ -35,6 +42,15 @@ export const componentRegistry: MotionComponentDefinition[] = [
     category: "3D",
     source: "OriginKit",
     renderer: CoinLoader,
+    exportCapabilities: ["mov", "apng", "usdz"],
+    triggerMode: "auto",
+  },
+  {
+    id: "disc-split",
+    name: "Disc Split",
+    category: "3D",
+    source: "OriginKit",
+    renderer: DiscSplit,
     exportCapabilities: ["mov", "apng", "usdz"],
     triggerMode: "auto",
   },

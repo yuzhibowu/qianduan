@@ -1,0 +1,475 @@
+import { useEffect, useRef, type CSSProperties } from "react";
+
+type RGB = [number, number, number];
+type Matrix4 = Float32Array;
+
+export type DiscSplitProps = {
+  background?: string;
+  baseColor: string;
+  accentColor: string;
+  speed: number;
+  distance: number;
+  timeSeconds: number;
+  loopDuration: number;
+  disc?: {
+    count: number;
+    innerRadius: number;
+    thickness: number;
+    burst: number;
+  };
+  style?: CSSProperties;
+};
+
+const TAU = Math.PI * 2;
+const DEFAULT_DISC = { count: 6, innerRadius: 31, thickness: 90, burst: 71 };
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseColor(value: string | undefined, fallback: RGB): RGB {
+  const match = /^#([0-9a-f]{6})$/i.exec(value?.trim() ?? "");
+  if (!match) return fallback;
+  const hex = Number.parseInt(match[1], 16);
+  return [
+    ((hex >> 16) & 255) / 255,
+    ((hex >> 8) & 255) / 255,
+    (hex & 255) / 255,
+  ];
+}
+
+function identity(): Matrix4 {
+  const result = new Float32Array(16);
+  result[0] = result[5] = result[10] = result[15] = 1;
+  return result;
+}
+
+function multiply(left: Matrix4, right: Matrix4): Matrix4 {
+  const result = new Float32Array(16);
+  for (let column = 0; column < 4; column += 1) {
+    const a = right[column * 4];
+    const b = right[column * 4 + 1];
+    const c = right[column * 4 + 2];
+    const d = right[column * 4 + 3];
+    result[column * 4] = left[0] * a + left[4] * b + left[8] * c + left[12] * d;
+    result[column * 4 + 1] =
+      left[1] * a + left[5] * b + left[9] * c + left[13] * d;
+    result[column * 4 + 2] =
+      left[2] * a + left[6] * b + left[10] * c + left[14] * d;
+    result[column * 4 + 3] =
+      left[3] * a + left[7] * b + left[11] * c + left[15] * d;
+  }
+  return result;
+}
+
+function translation(x: number, y: number, z: number): Matrix4 {
+  const result = identity();
+  result[12] = x;
+  result[13] = y;
+  result[14] = z;
+  return result;
+}
+
+function rotationX(angle: number): Matrix4 {
+  const result = identity(),
+    cosine = Math.cos(angle),
+    sine = Math.sin(angle);
+  result[5] = cosine;
+  result[6] = sine;
+  result[9] = -sine;
+  result[10] = cosine;
+  return result;
+}
+
+function rotationY(angle: number): Matrix4 {
+  const result = identity(),
+    cosine = Math.cos(angle),
+    sine = Math.sin(angle);
+  result[0] = cosine;
+  result[2] = -sine;
+  result[8] = sine;
+  result[10] = cosine;
+  return result;
+}
+
+function rotationZ(angle: number): Matrix4 {
+  const result = identity(),
+    cosine = Math.cos(angle),
+    sine = Math.sin(angle);
+  result[0] = cosine;
+  result[1] = sine;
+  result[4] = -sine;
+  result[5] = cosine;
+  return result;
+}
+
+function scale(value: number): Matrix4 {
+  const result = identity();
+  result[0] = result[5] = result[10] = value;
+  return result;
+}
+
+function perspective(aspect: number): Matrix4 {
+  const near = 0.1,
+    far = 200,
+    f = 1 / Math.tan((45 * Math.PI) / 360);
+  const result = new Float32Array(16);
+  result[0] = f / aspect;
+  result[5] = f;
+  result[10] = (far + near) / (near - far);
+  result[11] = -1;
+  result[14] = (2 * far * near) / (near - far);
+  return result;
+}
+
+function normalMatrix(model: Matrix4) {
+  const a = model[0],
+    b = model[1],
+    c = model[2],
+    d = model[4],
+    e = model[5],
+    f = model[6],
+    g = model[8],
+    h = model[9],
+    i = model[10];
+  const x = e * i - h * f,
+    y = -(b * i - h * c),
+    z = b * f - e * c;
+  const determinant = a * x + d * y + g * z;
+  if (!determinant) return new Float32Array([a, b, c, d, e, f, g, h, i]);
+  const inverse = 1 / determinant;
+  return new Float32Array([
+    x * inverse,
+    -(d * i - g * f) * inverse,
+    (d * h - g * e) * inverse,
+    y * inverse,
+    (a * i - g * c) * inverse,
+    -(a * h - g * b) * inverse,
+    z * inverse,
+    -(a * f - d * c) * inverse,
+    (a * e - d * b) * inverse,
+  ]);
+}
+
+function wedgeGeometry(
+  count: number,
+  innerRadius: number,
+  thickness: number,
+  segments = 32,
+) {
+  const positions: number[] = [],
+    normals: number[] = [],
+    indices: number[] = [];
+  const angleSpan = TAU / count;
+  const vertex = (
+    x: number,
+    y: number,
+    z: number,
+    nx: number,
+    ny: number,
+    nz: number,
+  ) => {
+    positions.push(x, y, z);
+    normals.push(nx, ny, nz);
+    return positions.length / 3 - 1;
+  };
+  const quad = (a: number, b: number, c: number, d: number) =>
+    indices.push(a, b, c, a, c, d);
+  for (let step = 0; step < segments; step += 1) {
+    const start = (step / segments) * angleSpan,
+      end = ((step + 1) / segments) * angleSpan;
+    const cs = Math.cos(start),
+      ss = Math.sin(start),
+      ce = Math.cos(end),
+      se = Math.sin(end);
+    quad(
+      vertex(innerRadius * cs, innerRadius * ss, thickness, 0, 0, 1),
+      vertex(cs, ss, thickness, 0, 0, 1),
+      vertex(ce, se, thickness, 0, 0, 1),
+      vertex(innerRadius * ce, innerRadius * se, thickness, 0, 0, 1),
+    );
+    quad(
+      vertex(innerRadius * ce, innerRadius * se, 0, 0, 0, -1),
+      vertex(ce, se, 0, 0, 0, -1),
+      vertex(cs, ss, 0, 0, 0, -1),
+      vertex(innerRadius * cs, innerRadius * ss, 0, 0, 0, -1),
+    );
+    quad(
+      vertex(cs, ss, 0, cs, ss, 0),
+      vertex(ce, se, 0, ce, se, 0),
+      vertex(ce, se, thickness, ce, se, 0),
+      vertex(cs, ss, thickness, cs, ss, 0),
+    );
+    quad(
+      vertex(innerRadius * ce, innerRadius * se, 0, -ce, -se, 0),
+      vertex(innerRadius * cs, innerRadius * ss, 0, -cs, -ss, 0),
+      vertex(innerRadius * cs, innerRadius * ss, thickness, -cs, -ss, 0),
+      vertex(innerRadius * ce, innerRadius * se, thickness, -ce, -se, 0),
+    );
+  }
+  const radial = (angle: number, sign: number) => {
+    const cosine = Math.cos(angle),
+      sine = Math.sin(angle),
+      nx = sign * -sine,
+      ny = sign * cosine;
+    const a = vertex(innerRadius * cosine, innerRadius * sine, 0, nx, ny, 0);
+    const b = vertex(cosine, sine, 0, nx, ny, 0);
+    const c = vertex(cosine, sine, thickness, nx, ny, 0);
+    const d = vertex(
+      innerRadius * cosine,
+      innerRadius * sine,
+      thickness,
+      nx,
+      ny,
+      0,
+    );
+    sign > 0 ? quad(a, b, c, d) : quad(d, c, b, a);
+  };
+  radial(0, 1);
+  radial(angleSpan, -1);
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    indices: new Uint16Array(indices),
+  };
+}
+
+const vertexShader = `
+precision highp float;
+attribute vec3 aPos;
+attribute vec3 aNrm;
+uniform mat4 uMVP;
+uniform mat3 uNM;
+varying vec3 vN;
+void main() { vN = uNM * aNrm; gl_Position = uMVP * vec4(aPos, 1.0); }
+`;
+
+const fragmentShader = `
+precision highp float;
+varying vec3 vN;
+uniform vec3 uBase;
+uniform vec3 uAcc;
+const vec3 KEY = vec3(-0.4364, 0.4601, 0.7733);
+const vec3 FILL = vec3(0.7831, 0.1309, 0.6080);
+void main() {
+  vec3 n = normalize(vN);
+  if (!gl_FrontFacing) n = -n;
+  float k = max(dot(n, KEY), 0.0);
+  float f = max(dot(n, FILL), 0.0);
+  float graze = 1.0 - clamp(abs(n.z), 0.0, 1.0);
+  vec3 c = uBase * (0.08 + 0.62 * pow(k, 2.0));
+  c += uAcc * 0.80 * pow(k, 9.0);
+  c += uAcc * 0.35 * pow(f, 6.0);
+  c += uAcc * 0.32 * pow(graze, 3.0) * (0.40 + 0.60 * max(n.y, 0.0));
+  gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}
+`;
+
+function compile(gl: WebGLRenderingContext, type: number, source: string) {
+  const shader = gl.createShader(type);
+  if (!shader) throw new Error("无法创建 Disc Split Shader");
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+    throw new Error(
+      gl.getShaderInfoLog(shader) ?? "Disc Split Shader 编译失败",
+    );
+  return shader;
+}
+
+const easeOutQuadratic = (value: number) => 1 - (1 - value) ** 2;
+
+export default function DiscSplit({
+  background = "transparent",
+  baseColor,
+  accentColor,
+  speed,
+  distance,
+  timeSeconds,
+  loopDuration,
+  disc,
+  style,
+}: DiscSplitProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const liveRef = useRef({
+    baseColor,
+    accentColor,
+    speed,
+    distance,
+    disc: { ...DEFAULT_DISC, ...disc },
+    timeSeconds,
+  });
+  liveRef.current = {
+    baseColor,
+    accentColor,
+    speed,
+    distance,
+    disc: { ...DEFAULT_DISC, ...disc },
+    timeSeconds,
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const gl = canvas.getContext("webgl", {
+      antialias: true,
+      alpha: true,
+      premultipliedAlpha: true,
+      depth: true,
+      preserveDrawingBuffer: true,
+    });
+    if (!gl) throw new Error("当前环境无法创建 Disc Split WebGL 上下文");
+    const program = gl.createProgram();
+    if (!program) throw new Error("无法创建 Disc Split Program");
+    const vs = compile(gl, gl.VERTEX_SHADER, vertexShader),
+      fs = compile(gl, gl.FRAGMENT_SHADER, fragmentShader);
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    gl.useProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+      throw new Error(gl.getProgramInfoLog(program) ?? "Disc Split 链接失败");
+    const aPos = gl.getAttribLocation(program, "aPos"),
+      aNrm = gl.getAttribLocation(program, "aNrm");
+    const uMVP = gl.getUniformLocation(program, "uMVP"),
+      uNM = gl.getUniformLocation(program, "uNM");
+    const uBase = gl.getUniformLocation(program, "uBase"),
+      uAcc = gl.getUniformLocation(program, "uAcc");
+    const positionBuffer = gl.createBuffer(),
+      normalBuffer = gl.createBuffer(),
+      indexBuffer = gl.createBuffer();
+    if (
+      !uMVP ||
+      !uNM ||
+      !uBase ||
+      !uAcc ||
+      !positionBuffer ||
+      !normalBuffer ||
+      !indexBuffer
+    )
+      throw new Error("Disc Split WebGL 初始化失败");
+    gl.enableVertexAttribArray(aPos);
+    gl.enableVertexAttribArray(aNrm);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.clearColor(0, 0, 0, 0);
+    let geometryKey = "",
+      indexCount = 0;
+    const resize = () => {
+      const dpr =
+        document.documentElement.dataset.render === "frame"
+          ? 1
+          : Math.min(devicePixelRatio || 1, 2);
+      const width = Math.max(1, Math.round(canvas.clientWidth * dpr)),
+        height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      gl.viewport(0, 0, width, height);
+    };
+    const draw = () => {
+      resize();
+      const settings = liveRef.current,
+        pieceCount = Math.max(2, Math.round(settings.disc.count));
+      const thickness = (0.3 * clamp(settings.disc.thickness, 10, 400)) / 100;
+      const innerRadius = clamp(settings.disc.innerRadius, 0, 90) / 100;
+      const nextGeometryKey = `${pieceCount}|${innerRadius.toFixed(4)}|${thickness.toFixed(4)}`;
+      if (geometryKey !== nextGeometryKey) {
+        geometryKey = nextGeometryKey;
+        const geometry = wedgeGeometry(pieceCount, innerRadius, thickness);
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, geometry.positions, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, geometry.normals, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.bufferData(
+          gl.ELEMENT_ARRAY_BUFFER,
+          geometry.indices,
+          gl.STATIC_DRAW,
+        );
+        indexCount = geometry.indices.length;
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+      gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+      gl.vertexAttribPointer(aNrm, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+      gl.uniform3fv(uBase, parseColor(settings.baseColor, [0.56, 0.6, 0.65]));
+      gl.uniform3fv(uAcc, parseColor(settings.accentColor, [1, 1, 1]));
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      const aspect = canvas.width / canvas.height;
+      const pv = multiply(
+        perspective(aspect),
+        translation(0, 0, -settings.distance / Math.min(1, aspect)),
+      );
+      const fallbackDuration =
+        150 / Math.max(0.001, clamp(settings.speed, 0, 100));
+      const cycleDuration = loopDuration > 0 ? loopDuration : fallbackDuration;
+      const phase =
+        ((((settings.timeSeconds / cycleDuration) * 3) % 3) + 3) % 3;
+      const returnStart = easeOutQuadratic(1 / 1.5);
+      const burst =
+        phase < 1
+          ? easeOutQuadratic(Math.min(1, phase / 1.5))
+          : returnStart *
+            (1 - easeOutQuadratic(Math.min(1, (phase - 1) / 1.5)));
+      const turn = Math.PI * easeOutQuadratic(Math.min(1, phase / 2));
+      const radialDistance = (0.5 * clamp(settings.disc.burst, 0, 300)) / 100;
+      for (let index = 0; index < pieceCount; index += 1) {
+        const angle = (index / pieceCount) * TAU;
+        let model = scale(1.6);
+        model = multiply(model, translation(0, 0, thickness / 2));
+        model = multiply(model, rotationX(Math.PI / 2));
+        model = multiply(
+          model,
+          translation(
+            Math.sin(angle) * radialDistance * burst,
+            0,
+            Math.cos(angle) * radialDistance * burst,
+          ),
+        );
+        model = multiply(model, rotationY(angle));
+        model = multiply(model, rotationZ(turn));
+        model = multiply(model, rotationX(Math.PI / 2));
+        gl.uniformMatrix4fv(uMVP, false, multiply(pv, model));
+        gl.uniformMatrix3fv(uNM, false, normalMatrix(model));
+        gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0);
+      }
+    };
+    const observer = new ResizeObserver(draw);
+    observer.observe(canvas);
+    let animationFrame = 0;
+    const animate = () => {
+      draw();
+      animationFrame = requestAnimationFrame(animate);
+    };
+    animationFrame = requestAnimationFrame(animate);
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      gl.deleteBuffer(positionBuffer);
+      gl.deleteBuffer(normalBuffer);
+      gl.deleteBuffer(indexBuffer);
+      gl.deleteProgram(program);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+    };
+  }, [loopDuration]);
+
+  return (
+    <div className="motion-root" style={{ background, ...style }}>
+      <canvas
+        ref={canvasRef}
+        data-testid="disc-split-canvas"
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          display: "block",
+        }}
+      />
+    </div>
+  );
+}

@@ -1,24 +1,49 @@
-import { describe, expect, it } from "vitest"
-import { componentRegistry, getMotionComponent } from "./component-registry"
+import { describe, expect, it } from "vitest";
+import { componentRegistry, getMotionComponent } from "./component-registry";
 
 describe("motion component registry", () => {
   it("registers Coin Loader with its real export capabilities", () => {
-    const component = getMotionComponent("coin-loader")
-    expect(component.name).toBe("Coin Loader")
-    expect(component.source).toBe("OriginKit")
-    expect(component.triggerMode).toBe("auto")
-    expect(component.exportCapabilities).toEqual(["mov", "apng", "usdz"])
-  })
+    const component = getMotionComponent("coin-loader");
+    expect(component.name).toBe("Coin Loader");
+    expect(component.source).toBe("OriginKit");
+    expect(component.triggerMode).toBe("auto");
+    expect(component.exportCapabilities).toEqual(["mov", "apng", "usdz"]);
+  });
 
   it("falls back safely when an unknown component id is requested", () => {
-    expect(getMotionComponent("missing")).toBe(componentRegistry[0])
-  })
+    expect(getMotionComponent("missing")).toBe(componentRegistry[0]);
+  });
+
+  it("registers Disc Split as a deterministic 3D component with USDZ export", () => {
+    const component = getMotionComponent("disc-split");
+    expect(component.name).toBe("Disc Split");
+    expect(component.category).toBe("3D");
+    expect(component.exportCapabilities).toEqual(["mov", "apng", "usdz"]);
+  });
 
   it("collects the last three OriginKit border examples without claiming USDZ support", () => {
-    const borders = ["glow-border", "neon-border", "pulsating-border"].map(getMotionComponent)
-    expect(borders.map((component) => component.name)).toEqual(["Glow Border", "Neon Border", "Pulsating Border"])
-    expect(borders.every((component) => component.exportCapabilities.includes("mov"))).toBe(true)
-    expect(borders.every((component) => component.exportCapabilities.includes("apng"))).toBe(true)
-    expect(borders.every((component) => !component.exportCapabilities.includes("usdz"))).toBe(true)
-  })
-})
+    const borders = ["glow-border", "neon-border", "pulsating-border"].map(
+      getMotionComponent,
+    );
+    expect(borders.map((component) => component.name)).toEqual([
+      "Glow Border",
+      "Neon Border",
+      "Pulsating Border",
+    ]);
+    expect(
+      borders.every((component) =>
+        component.exportCapabilities.includes("mov"),
+      ),
+    ).toBe(true);
+    expect(
+      borders.every((component) =>
+        component.exportCapabilities.includes("apng"),
+      ),
+    ).toBe(true);
+    expect(
+      borders.every(
+        (component) => !component.exportCapabilities.includes("usdz"),
+      ),
+    ).toBe(true);
+  });
+});
