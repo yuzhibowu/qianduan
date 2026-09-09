@@ -104,6 +104,8 @@ select {
     -12px 0;
 }
 .canvas-stage {
+  position: relative;
+  overflow: hidden;
   width: min(100%, 960px);
   aspect-ratio: 16/9;
   background: transparent;

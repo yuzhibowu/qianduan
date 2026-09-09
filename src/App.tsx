@@ -7,6 +7,26 @@ import { componentRegistry, getMotionComponent } from "./component-registry";
 import { cancelBrowserExport, exportInBrowser } from "./browser-export";
 
 type ColorTarget = "keynote" | "freeform";
+type ComponentControls = {
+  baseColor: string;
+  accentColor: string;
+  speed: number;
+  ringSpeed: number;
+  distance: number;
+  count: number;
+  coinSize: number;
+  spread: number;
+  borderWidth: number;
+  rounded: number;
+  glow: number;
+};
+
+const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
+  "coin-loader": { baseColor: "#FFFFFF", accentColor: "#FFFFFF", speed: 100, ringSpeed: 50, distance: 20, count: 8, coinSize: 100, spread: 100, borderWidth: 5, rounded: 35, glow: 50 },
+  "glow-border": { baseColor: "#00EDFF", accentColor: "#00FFE8", speed: 10, ringSpeed: 50, distance: 20, count: 8, coinSize: 100, spread: 100, borderWidth: 5, rounded: 0, glow: 50 },
+  "neon-border": { baseColor: "#CC9149", accentColor: "#CC9149", speed: 16, ringSpeed: 50, distance: 20, count: 8, coinSize: 100, spread: 100, borderWidth: 6, rounded: 24, glow: 100 },
+  "pulsating-border": { baseColor: "#F2244F", accentColor: "#4DA6E6", speed: 1, ringSpeed: 50, distance: 20, count: 8, coinSize: 100, spread: 100, borderWidth: 5, rounded: 35, glow: 50 },
+};
 const colorProfileFor = (target: ColorTarget): ColorComp =>
   target === "keynote" ? DEFAULT_COMP : FREEFORM_COMP;
 const colorTargetLabel = (target: ColorTarget) =>
@@ -84,6 +104,7 @@ export default function App() {
   const originRef = useRef(0);
   const timeAtPlayRef = useRef(0);
   const previewRef = useRef<HTMLDivElement>(null);
+  const componentControlsRef = useRef<Record<string, ComponentControls>>({ ...COMPONENT_DEFAULTS });
   const componentDefinition = getMotionComponent(componentId);
   const MotionRenderer = componentDefinition.renderer;
 
@@ -208,23 +229,21 @@ export default function App() {
   };
 
   const chooseComponent = (nextId: string) => {
+    componentControlsRef.current[componentId] = { baseColor, accentColor, speed, ringSpeed, distance, count, coinSize, spread, borderWidth, rounded, glow };
+    const next = componentControlsRef.current[nextId] ?? COMPONENT_DEFAULTS[nextId] ?? COMPONENT_DEFAULTS["coin-loader"];
     setComponentId(nextId);
-    if (nextId === "glow-border") {
-      setBaseColor("#00EDFF");
-      setAccentColor("#00FFE8");
-      setSpeed(10);
-      setRounded(0);
-    } else if (nextId === "neon-border") {
-      setBaseColor("#CC9149");
-      setAccentColor("#CC9149");
-      setSpeed(16);
-      setRounded(24);
-    } else if (nextId === "pulsating-border") {
-      setBaseColor("#F2244F");
-      setAccentColor("#4DA6E6");
-      setSpeed(1);
-      setRounded(35);
-    }
+    setBaseColor(next.baseColor);
+    setAccentColor(next.accentColor);
+    setSpeed(next.speed);
+    setRingSpeed(next.ringSpeed);
+    setDistance(next.distance);
+    setCount(next.count);
+    setCoinSize(next.coinSize);
+    setSpread(next.spread);
+    setBorderWidth(next.borderWidth);
+    setRounded(next.rounded);
+    setGlow(next.glow);
+    setTime(0);
   };
 
   async function startExport(format: "mov" | "apng") {
@@ -359,7 +378,7 @@ export default function App() {
             OriginKit → Keynote Motion Exporter
           </strong>
           <div className="title-actions">
-            <span className="version">260909X2</span>
+            <span className="version">260909X3</span>
             <button
               className="theme-toggle"
               aria-label={
