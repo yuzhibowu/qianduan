@@ -210,7 +210,7 @@ export default function CoinLoader({
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.clearColor(0, 0, 0, 0)
 
     const resize = () => {
-      const dpr = Math.min(devicePixelRatio || 1, 2)
+      const dpr = document.documentElement.dataset.render === "frame" ? 1 : Math.min(devicePixelRatio || 1, 2)
       const width = Math.max(1, Math.round(canvas.clientWidth * dpr))
       const height = Math.max(1, Math.round(canvas.clientHeight * dpr))
       if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height }

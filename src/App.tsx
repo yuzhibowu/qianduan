@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import CoinLoader from "./components/CoinLoader"
 import Slider from "./components/Slider"
 import { DEFAULT_LOOP_DURATION, rotationsPerCycle } from "./time"
 import { buildCoinUsdz, downloadUsdz } from "./usdz"
 import { DEFAULT_COMP, FREEFORM_COMP, type ColorComp } from "./lib/color"
+import { componentRegistry, getMotionComponent } from "./component-registry"
+import { cancelBrowserExport, exportInBrowser } from "./browser-export"
 
 type ColorTarget = "keynote" | "freeform"
 const colorProfileFor = (target: ColorTarget): ColorComp => target === "keynote" ? DEFAULT_COMP : FREEFORM_COMP
@@ -25,6 +26,8 @@ export default function App() {
   const querySpread = Number(query.get("spread") ?? 100)
   const queryBackground = query.get("background") ?? "transparent"
   const queryDuration = Number(query.get("duration") ?? DEFAULT_LOOP_DURATION)
+  const queryComponent = query.get("component") ?? "coin-loader"
+  const [componentId, setComponentId] = useState(queryComponent)
   const [playing, setPlaying] = useState(true)
   const [time, setTime] = useState(0)
   const [speed, setSpeed] = useState(100)
@@ -55,6 +58,8 @@ export default function App() {
   const originRef = useRef(0)
   const timeAtPlayRef = useRef(0)
   const previewRef = useRef<HTMLDivElement>(null)
+  const componentDefinition = getMotionComponent(componentId)
+  const MotionRenderer = componentDefinition.renderer
 
   if (exportMode) {
     document.documentElement.dataset.render = "frame"
@@ -62,7 +67,7 @@ export default function App() {
       data-testid="export-stage"
       style={{ width: exportWidth, height: exportHeight, position: "fixed", inset: 0, background: "transparent" }}
     >
-      <CoinLoader
+      <MotionRenderer
         baseColor={queryBaseColor}
         accentColor={queryAccentColor}
         speed={querySpeed}
@@ -92,17 +97,13 @@ export default function App() {
 
   async function startExport(format: "mov" | "apng") {
     setJob((current) => ({ ...current, running: true, stage: "准备导出", frame: 0, totalFrames: frameTotal, progress: 0, outputPath: "", framesPath: "", error: "" }))
-    const response = await fetch("/api/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...exportPayload, format }) })
-    if (!response.ok) {
-      const message = await response.text()
-      setJob((current) => ({ ...current, running: false, stage: "导出失败", error: message }))
-      return
+    try {
+      const result = await exportInBrowser(format, exportPayload, (progress) => setJob((current) => ({ ...current, ...progress })))
+      setJob((current) => ({ ...current, running: false, stage: `Finished · 已下载 ${result.outputName}`, progress: 100, outputPath: "" }))
+    } catch (error) {
+      const cancelled = error instanceof DOMException && error.name === "AbortError"
+      setJob((current) => ({ ...current, running: false, stage: cancelled ? "已取消" : "导出失败", error: cancelled ? "" : error instanceof Error ? error.message : String(error) }))
     }
-    const timer = window.setInterval(async () => {
-      const status = await fetch("/api/export/status").then((result) => result.json())
-      setJob(status)
-      if (!status.running) window.clearInterval(timer)
-    }, 250)
   }
 
   async function revealOutput(path?: string) {
@@ -122,7 +123,7 @@ export default function App() {
   }
 
   async function cancelExport() {
-    await fetch("/api/export/cancel", { method: "POST" })
+    cancelBrowserExport()
   }
 
   useEffect(() => {
@@ -167,12 +168,12 @@ export default function App() {
   }
   return <main className="app">
     <section className="stage">
-      <header className="titlebar"><strong className="tool-name">OriginKit → Keynote Motion Exporter</strong><div className="title-actions"><span className="version">260908X6</span><button className="theme-toggle" aria-label={theme === "light" ? "切换到暗色外观" : "切换到亮色外观"} onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "☀" : "☾"}</button></div></header>
-      <div className="checkerboard" ref={previewRef}><div className={`canvas-stage ${aspectRatio === "1:1" ? "square" : ""}`} style={{ aspectRatio: aspectRatio === "1:1" ? "1 / 1" : "16 / 9" }} data-testid="render-stage"><CoinLoader background={previewBackground} baseColor={baseColor} accentColor={accentColor} speed={speed} distance={distance} coins={{ count, coinSize, spread, ringSpeed }} timeSeconds={previewTime} loopDuration={duration} /></div></div>
+      <header className="titlebar"><strong className="tool-name">OriginKit → Keynote Motion Exporter</strong><div className="title-actions"><span className="version">260909X1</span><button className="theme-toggle" aria-label={theme === "light" ? "切换到暗色外观" : "切换到亮色外观"} onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "☀" : "☾"}</button></div></header>
+      <div className="checkerboard" ref={previewRef}><div className={`canvas-stage ${aspectRatio === "1:1" ? "square" : ""}`} style={{ aspectRatio: aspectRatio === "1:1" ? "1 / 1" : "16 / 9" }} data-testid="render-stage"><MotionRenderer background={previewBackground} baseColor={baseColor} accentColor={accentColor} speed={speed} distance={distance} coins={{ count, coinSize, spread, ringSpeed }} timeSeconds={previewTime} loopDuration={duration} /></div></div>
       <div className="stage-dock"><span>Coin Loader · 双指上下滑动缩放</span><div className="stage-tools"><button className="btn" onClick={() => setPlaying((value) => !value)}>{playing ? "暂停" : "播放"}</button><button className="btn" onClick={() => { setPlaying(false); setTime(0) }}>回到开头</button></div></div>
     </section>
     <aside className="side">
-      <div className="side-head"><select className="model-type" aria-label="组件"><option>Coin Loader</option></select><strong className="brand">饼饼SHOW</strong></div>
+      <div className="side-head"><select className="model-type" aria-label="组件" value={componentId} onChange={(event) => setComponentId(event.target.value)}>{componentRegistry.map((component) => <option key={component.id} value={component.id}>{component.name}</option>)}</select><strong className="brand">饼饼SHOW</strong></div>
       <div className="side-body">
         <section><h2>组件参数</h2><div className="color-row"><label className="field">主体颜色<input aria-label="主体颜色" type="color" value={baseColor} onChange={(event) => setBaseColor(event.target.value)} /></label><label className="field">高光颜色<input aria-label="高光颜色" type="color" value={accentColor} onChange={(event) => setAccentColor(event.target.value)} /></label></div>
           <Slider label="硬币翻转" value={speed} min={0} max={200} step={50} display={`${rotationsPerCycle(speed)} 圈 / 周期`} onChange={setSpeed} />
