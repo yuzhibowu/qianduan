@@ -17,9 +17,12 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "@paper-design/shaders": "^0.0.61",
+    "@paper-design/shaders-react": "^0.0.61",
     "@vitejs/plugin-react": "latest",
     "express": "latest",
     "fflate": "latest",
+    "html-to-image": "^1.11.13",
     "playwright-core": "latest",
     "pngjs": "latest",
     "react": "latest",
