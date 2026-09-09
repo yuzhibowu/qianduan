@@ -1,12 +1,54 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { MotionComponentDefinition } from "../component-registry";
 
-type Option = { id: string; name: string; category: string; poster: string };
+type Option = MotionComponentDefinition;
 
 type Props = {
   value: string;
   options: Option[];
   onChange: (value: string) => void;
 };
+
+function AnimatedPreview({ option }: { option: Option }) {
+  const [timeSeconds, setTimeSeconds] = useState(0);
+  const Renderer = option.renderer;
+  useEffect(() => {
+    const startedAt = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      setTimeSeconds((now - startedAt) / 1000);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [option.id]);
+  const isGyro = option.id === "gyro-loader";
+  const isTypewriter = option.id === "typewriter";
+  const isShiny = option.id === "shiny-pill";
+  return (
+    <div className="component-picker-preview-stage">
+      <Renderer
+        baseColor="#ffffff"
+        accentColor={isShiny ? "#78ff83" : "#ffffff"}
+        speed={50}
+        distance={20}
+        timeSeconds={timeSeconds}
+        loopDuration={isTypewriter ? 12 : isShiny ? 1.5 : isGyro ? 2.45 : 4}
+        background="transparent"
+        canvasAspect={16 / 9}
+        borderAspect={16 / 9}
+        coins={
+          isGyro
+            ? { count: 4, coinSize: 100, spread: 150, ringSpeed: 500 }
+            : { count: 8, coinSize: 100, spread: 100, ringSpeed: 50 }
+        }
+        disc={{ count: 6, innerRadius: 22, thickness: 100, burst: 100 }}
+        text={isTypewriter ? "Interfaces|Experiences" : "SHINY PILL"}
+        fontSize={isTypewriter ? 38 : 42}
+      />
+    </div>
+  );
+}
 
 export default function ComponentPicker({ value, options, onChange }: Props) {
   const [open, setOpen] = useState(false);
@@ -138,7 +180,7 @@ export default function ComponentPicker({ value, options, onChange }: Props) {
             ),
           }}
         >
-          <img src={preview.option.poster} alt="" />
+          <AnimatedPreview key={preview.option.id} option={preview.option} />
           <span>{preview.option.name}</span>
         </div>
       )}
