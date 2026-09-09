@@ -7,14 +7,17 @@ import {
 } from "./components/BorderComponents";
 import type { ComponentType } from "react";
 import DiscSplit from "./components/DiscSplit";
+import GyroLoader from "./components/GyroLoader";
+import { ShinyPill, Typewriter } from "./components/TextEffects";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
 export type MotionComponentDefinition = {
   id: string;
   name: string;
-  category: "3D" | "Text" | "Image" | "Particle";
+  category: "3D" | "Text" | "Image" | "Particle" | "Background" | "Interaction";
   source: "OriginKit";
+  poster: string;
   renderer: ComponentType<
     BorderRendererProps & {
       coins?: {
@@ -29,6 +32,8 @@ export type MotionComponentDefinition = {
         thickness: number;
         burst: number;
       };
+      text?: string;
+      fontSize?: number;
     }
   >;
   exportCapabilities: ExportCapability[];
@@ -41,6 +46,7 @@ export const componentRegistry: MotionComponentDefinition[] = [
     name: "Coin Loader",
     category: "3D",
     source: "OriginKit",
+    poster: "https://cdn.originkit.dev/components/coin-loader-poster.jpg",
     renderer: CoinLoader,
     exportCapabilities: ["mov", "apng", "usdz"],
     triggerMode: "auto",
@@ -50,8 +56,41 @@ export const componentRegistry: MotionComponentDefinition[] = [
     name: "Disc Split",
     category: "3D",
     source: "OriginKit",
+    poster: "https://cdn.originkit.dev/components/disc-split-poster.jpg",
     renderer: DiscSplit,
     exportCapabilities: ["mov", "apng", "usdz"],
+    triggerMode: "auto",
+  },
+  {
+    id: "gyro-loader",
+    name: "Gyro Loader",
+    category: "3D",
+    source: "OriginKit",
+    poster: "https://cdn.originkit.dev/components/gyro-loader-poster.jpg",
+    renderer: GyroLoader,
+    exportCapabilities: ["mov", "apng", "usdz"],
+    triggerMode: "auto",
+  },
+  {
+    id: "typewriter",
+    name: "Typewriter",
+    category: "Text",
+    source: "OriginKit",
+    poster:
+      "https://cdn.originkit.dev/components/typewriter-gallery-poster.jpg?v=mszok3qm",
+    renderer: Typewriter,
+    exportCapabilities: ["mov", "apng"],
+    triggerMode: "auto",
+  },
+  {
+    id: "shiny-pill",
+    name: "Shiny Pill",
+    category: "Text",
+    source: "OriginKit",
+    poster:
+      "https://cdn.originkit.dev/components/shiny-pill-gallery-poster.jpg?v=mszohxcu",
+    renderer: ShinyPill,
+    exportCapabilities: ["mov", "apng"],
     triggerMode: "auto",
   },
   {
@@ -59,6 +98,7 @@ export const componentRegistry: MotionComponentDefinition[] = [
     name: "Glow Border",
     category: "Particle",
     source: "OriginKit",
+    poster: "https://cdn.originkit.dev/components/glow-border-poster.jpg",
     renderer: GlowBorder,
     exportCapabilities: ["mov", "apng"],
     triggerMode: "auto",
@@ -68,6 +108,7 @@ export const componentRegistry: MotionComponentDefinition[] = [
     name: "Neon Border",
     category: "Particle",
     source: "OriginKit",
+    poster: "https://cdn.originkit.dev/components/neon-border-poster.jpg",
     renderer: NeonBorder,
     exportCapabilities: ["mov", "apng"],
     triggerMode: "auto",
@@ -77,6 +118,7 @@ export const componentRegistry: MotionComponentDefinition[] = [
     name: "Pulsating Border",
     category: "Particle",
     source: "OriginKit",
+    poster: "https://cdn.originkit.dev/components/pulsating-border-poster.jpg",
     renderer: PulsatingBorder,
     exportCapabilities: ["mov", "apng"],
     triggerMode: "auto",

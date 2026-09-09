@@ -19,6 +19,9 @@ export type DiscSplitUsdzSettings = CoinUsdzSettings & {
   innerRadius: number;
   accentColor: string;
 };
+export type GyroLoaderUsdzSettings = CoinUsdzSettings & {
+  accentColor: string;
+};
 const TAU = Math.PI * 2;
 const turns = (value: number) =>
   value <= 0 ? 0 : Math.max(1, Math.round(value / 50));
@@ -425,6 +428,129 @@ def Xform "DiscSplit" {
     }
   }
   ${pieces}
+}`;
+  const data = strToU8(model),
+    name = "model.usda",
+    padding = (64 - ((30 + name.length + 4) % 64)) % 64;
+  return {
+    bytes: zipSync(
+      { [name]: [data, { extra: { 6530: new Uint8Array(padding) } }] },
+      { level: 0 },
+    ),
+    frames,
+  };
+}
+
+function gyroTorusGeometry(
+  radius: number,
+  tube: number,
+  radialSegments = 20,
+  tubularSegments = 80,
+) {
+  const points: number[][] = [],
+    normals: number[][] = [],
+    indices: number[] = [],
+    counts: number[] = [];
+  for (let radial = 0; radial <= radialSegments; radial += 1) {
+    const v = (radial / radialSegments) * TAU,
+      cosineV = Math.cos(v),
+      sineV = Math.sin(v);
+    for (let tubular = 0; tubular <= tubularSegments; tubular += 1) {
+      const u = (tubular / tubularSegments) * TAU,
+        cosineU = Math.cos(u),
+        sineU = Math.sin(u);
+      points.push([
+        (radius + tube * cosineV) * sineU,
+        (radius + tube * cosineV) * cosineU,
+        tube * sineV,
+      ]);
+      normals.push([cosineV * sineU, cosineV * cosineU, sineV]);
+    }
+  }
+  for (let radial = 1; radial <= radialSegments; radial += 1) {
+    for (let tubular = 1; tubular <= tubularSegments; tubular += 1) {
+      const a = (tubularSegments + 1) * radial + tubular - 1,
+        b = (tubularSegments + 1) * (radial - 1) + tubular - 1,
+        c = (tubularSegments + 1) * (radial - 1) + tubular,
+        d = (tubularSegments + 1) * radial + tubular;
+      indices.push(a, b, d, b, c, d);
+      counts.push(3, 3);
+    }
+  }
+  return { points, normals, indices, counts };
+}
+
+export function buildGyroLoaderUsdz(s: GyroLoaderUsdzSettings) {
+  const frames = Math.max(1, Math.round((s.duration + s.delay) * s.fps)),
+    end = frames - 1,
+    count = Math.max(1, Math.round(s.count)),
+    tube = (0.1 * Math.max(20, Math.min(400, s.coinSize))) / 100,
+    stagger = Math.max(0, Math.min(600, s.spread)) / 1000,
+    pause = Math.max(0, Math.min(2000, s.ringSpeed)) / 1000,
+    motionDuration = Math.max(
+      0.001,
+      s.duration - stagger * (count - 1) - pause,
+    );
+  const color =
+      (s.colorComp ? compensateToLinear(s.baseColor, s.colorComp) : null) ??
+      linearRgb(s.baseColor),
+    unlit = Boolean(s.unlit),
+    lift = unlit ? 1 : Math.max(0, Math.min(1, s.emissiveLift ?? 0)),
+    diffuse = unlit ? [0, 0, 0] : color,
+    emissive = color.map((value) => value * lift);
+  const samples = (index: number) =>
+    `{${Array.from({ length: frames }, (_, frame) => {
+      const time = Math.max(0, frame / s.fps - s.delay),
+        progress = Math.min(
+          1,
+          Math.max(0, (time - index * stagger) / motionDuration),
+        ),
+        eased =
+          progress < 0.5
+            ? 2 * progress * progress
+            : 1 - 2 * (1 - progress) ** 2;
+      return `${frame}: ${usdMatrix(mMultiply(mRotateX(-eased * TAU), mRotateY(eased * TAU)))}`;
+    }).join(",")}}`;
+  const rings = Array.from({ length: count }, (_, index) => {
+    const geometry = gyroTorusGeometry((index + 1) * 0.5, tube);
+    return `def Xform "Ring${index + 1}" {
+  matrix4d xformOp:transform.timeSamples = ${samples(index)}
+  uniform token[] xformOpOrder = ["xformOp:transform"]
+  def Mesh "RingMesh" (prepend apiSchemas = ["MaterialBindingAPI"]) {
+    uniform token subdivisionScheme = "none"
+    point3f[] points = ${tuples(geometry.points)}
+    int[] faceVertexCounts = ${list(geometry.counts)}
+    int[] faceVertexIndices = ${list(geometry.indices)}
+    normal3f[] normals = ${tuples(geometry.normals)} (interpolation = "vertex")
+    rel material:binding = </GyroLoader/GyroMaterial>
+  }
+}`;
+  }).join("\n");
+  const model = `#usda 1.0
+(
+  defaultPrim = "GyroLoader"
+  metersPerUnit = 1
+  upAxis = "Y"
+  startTimeCode = 0
+  endTimeCode = ${end}
+  framesPerSecond = ${s.fps}
+  timeCodesPerSecond = ${s.fps}
+  playbackMode = "loop"
+  autoPlay = true
+)
+def Xform "GyroLoader" {
+  def Material "GyroMaterial" {
+    token outputs:surface.connect = </GyroLoader/GyroMaterial/Surface.outputs:surface>
+    def Shader "Surface" {
+      uniform token info:id = "UsdPreviewSurface"
+      color3f inputs:diffuseColor = (${diffuse.map((value) => value.toFixed(6)).join(",")})
+      color3f inputs:emissiveColor = (${emissive.map((value) => value.toFixed(6)).join(",")})
+      float inputs:metallic = 1
+      float inputs:roughness = 0.2
+      token outputs:surface
+    }
+  }
+  ${rings}
 }`;
   const data = strToU8(model),
     name = "model.usda",

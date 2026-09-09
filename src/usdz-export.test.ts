@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildCoinUsdz, buildDiscSplitUsdz } from "./usdz";
+import { buildCoinUsdz, buildDiscSplitUsdz, buildGyroLoaderUsdz } from "./usdz";
 import { DEFAULT_COMP, FREEFORM_COMP } from "./lib/color";
 
 const scratch = mkdtempSync(resolve(tmpdir(), "originkit-usdz-loop-"));
@@ -117,6 +117,31 @@ describe("animated USDZ loop boundary", () => {
         return translation.some((value) => Math.abs(value) > 0.001);
       }),
     ).toBe(true);
+    const check = spawnSync("/usr/bin/usdchecker", [output], {
+      encoding: "utf8",
+    });
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+  });
+
+  it("builds Gyro Loader as separately animated torus geometry", () => {
+    const output = resolve(scratch, "gyro-loader.usdz");
+    const result = buildGyroLoaderUsdz({
+      duration: 2.45,
+      delay: 0,
+      fps: 30,
+      speed: 50,
+      ringSpeed: 500,
+      count: 4,
+      coinSize: 100,
+      spread: 150,
+      baseColor: "#FFFFFF",
+      accentColor: "#FFFFFF",
+    });
+    writeFileSync(output, result.bytes);
+    const archive = unzipSync(result.bytes);
+    const usda = strFromU8(archive["model.usda"]);
+    expect(usda).toContain('def Xform "Ring4"');
+    expect(usda).toContain(`endTimeCode = ${result.frames - 1}`);
     const check = spawnSync("/usr/bin/usdchecker", [output], {
       encoding: "utf8",
     });

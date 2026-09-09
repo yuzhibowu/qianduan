@@ -21,6 +21,21 @@ describe("motion component registry", () => {
     expect(component.exportCapabilities).toEqual(["mov", "apng", "usdz"]);
   });
 
+  it("groups the first automatic expansion batch by its motion type", () => {
+    expect(getMotionComponent("gyro-loader").category).toBe("3D");
+    expect(getMotionComponent("gyro-loader").exportCapabilities).toEqual([
+      "mov",
+      "apng",
+      "usdz",
+    ]);
+    expect(getMotionComponent("typewriter").category).toBe("Text");
+    expect(getMotionComponent("shiny-pill").category).toBe("Text");
+    expect(getMotionComponent("typewriter").exportCapabilities).toEqual([
+      "mov",
+      "apng",
+    ]);
+  });
+
   it("collects the last three OriginKit border examples without claiming USDZ support", () => {
     const borders = ["glow-border", "neon-border", "pulsating-border"].map(
       getMotionComponent,

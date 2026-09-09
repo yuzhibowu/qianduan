@@ -26,6 +26,8 @@ export type BorderRendererProps = {
     thickness: number;
     burst: number;
   };
+  text?: string;
+  fontSize?: number;
 };
 type Size = { width: number; height: number };
 const clamp = (v: number, min: number, max: number) =>

@@ -211,6 +211,29 @@ select {
   color: #fff;
   background: #000;
 }
+.component-picker-preview {
+  position: fixed;
+  z-index: 1000;
+  width: 188px;
+  padding: 6px;
+  background: #000;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 34%);
+  pointer-events: none;
+}
+.component-picker-preview img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #111;
+}
+.component-picker-preview span {
+  display: block;
+  padding: 6px 2px 1px;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.2;
+}
 .custom-color-option {
   position: relative;
   display: flex;

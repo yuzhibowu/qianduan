@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Slider from "./components/Slider";
 import { DEFAULT_LOOP_DURATION, rotationsPerCycle } from "./time";
-import { buildCoinUsdz, buildDiscSplitUsdz, downloadUsdz } from "./usdz";
+import {
+  buildCoinUsdz,
+  buildDiscSplitUsdz,
+  buildGyroLoaderUsdz,
+  downloadUsdz,
+} from "./usdz";
 import { DEFAULT_COMP, FREEFORM_COMP, type ColorComp } from "./lib/color";
 import { componentRegistry, getMotionComponent } from "./component-registry";
 import { cancelBrowserExport, exportInBrowser } from "./browser-export";
@@ -22,6 +27,8 @@ type ComponentControls = {
   glow: number;
   borderAspect: number;
   innerRadius: number;
+  text?: string;
+  fontSize?: number;
   duration: number;
 };
 
@@ -74,6 +81,58 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     borderAspect: 16 / 9,
     innerRadius: 31,
     duration: 3,
+  },
+  "gyro-loader": {
+    baseColor: "#FFFFFF",
+    accentColor: "#FFFFFF",
+    speed: 50,
+    ringSpeed: 500,
+    distance: 20,
+    count: 4,
+    coinSize: 100,
+    spread: 150,
+    borderWidth: 5,
+    rounded: 35,
+    glow: 50,
+    borderAspect: 16 / 9,
+    innerRadius: 31,
+    duration: 2.45,
+  },
+  typewriter: {
+    baseColor: "#FFFFFF",
+    accentColor: "#FFFFFF",
+    speed: 50,
+    ringSpeed: 50,
+    distance: 20,
+    count: 8,
+    coinSize: 100,
+    spread: 100,
+    borderWidth: 5,
+    rounded: 35,
+    glow: 50,
+    borderAspect: 16 / 9,
+    innerRadius: 31,
+    text: "Interfaces|Experiences|Interactions|Products",
+    fontSize: 80,
+    duration: 12,
+  },
+  "shiny-pill": {
+    baseColor: "#FFFFFF",
+    accentColor: "#78FF83",
+    speed: 1.5,
+    ringSpeed: 50,
+    distance: 20,
+    count: 8,
+    coinSize: 100,
+    spread: 100,
+    borderWidth: 5,
+    rounded: 35,
+    glow: 50,
+    borderAspect: 16 / 9,
+    innerRadius: 31,
+    text: "SHINY PILL",
+    fontSize: 120,
+    duration: 1.5,
   },
   "glow-border": {
     baseColor: "#00EDFF",
@@ -159,6 +218,10 @@ export default function App() {
   const queryInnerRadius = Number(
     query.get("innerRadius") ?? queryDefaults.innerRadius,
   );
+  const queryText = query.get("text") ?? queryDefaults.text ?? "";
+  const queryFontSize = Number(
+    query.get("fontSize") ?? queryDefaults.fontSize ?? 80,
+  );
   const [componentId, setComponentId] = useState(queryComponent);
   const [exportFrameTime, setExportFrameTime] = useState(exportTime);
   const [playing, setPlaying] = useState(true);
@@ -176,19 +239,13 @@ export default function App() {
   const [glow, setGlow] = useState(queryGlow);
   const [borderAspect, setBorderAspect] = useState(queryBorderAspect);
   const [innerRadius, setInnerRadius] = useState(queryInnerRadius);
+  const [text, setText] = useState(queryText);
+  const [fontSize, setFontSize] = useState(queryFontSize);
   const [width, setWidth] = useState(exportWidth);
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "1:1">("16:9");
-  const [duration, setDuration] = useState(
-    query.get("duration")
-      ? queryDuration
-      : queryComponent === "coin-loader"
-        ? DEFAULT_LOOP_DURATION
-        : queryComponent === "disc-split"
-          ? 3
-          : (BORDER_DEFAULT_DURATIONS[queryComponent] ?? 10),
-  );
+  const [duration, setDuration] = useState(queryDuration);
   const [delay, setDelay] = useState(0);
   const [background, setBackground] = useState("transparent");
   const [loop, setLoop] = useState(true);
@@ -231,6 +288,8 @@ export default function App() {
     "pulsating-border",
   ].includes(componentId);
   const isDiscSplit = componentId === "disc-split";
+  const isGyroLoader = componentId === "gyro-loader";
+  const isTextEffect = ["typewriter", "shiny-pill"].includes(componentId);
 
   useEffect(() => {
     if (!exportMode) return;
@@ -272,6 +331,8 @@ export default function App() {
             thickness: queryCoinSize,
             burst: querySpread,
           }}
+          text={queryText}
+          fontSize={queryFontSize}
           timeSeconds={Number.isFinite(exportFrameTime) ? exportFrameTime : 0}
           loopDuration={queryDuration}
           background="transparent"
@@ -312,6 +373,8 @@ export default function App() {
       glow,
       borderAspect,
       innerRadius,
+      text,
+      fontSize,
       keepFrames,
       pngCompression,
     }),
@@ -337,6 +400,8 @@ export default function App() {
       glow,
       borderAspect,
       innerRadius,
+      text,
+      fontSize,
       keepFrames,
       pngCompression,
     ],
@@ -378,6 +443,8 @@ export default function App() {
       glow,
       borderAspect,
       innerRadius,
+      text,
+      fontSize,
       duration,
     };
     const next =
@@ -398,6 +465,8 @@ export default function App() {
     setGlow(next.glow);
     setBorderAspect(next.borderAspect);
     setInnerRadius(next.innerRadius);
+    setText(next.text ?? "");
+    setFontSize(next.fontSize ?? 80);
     setDuration(next.duration);
     setTime(0);
   };
@@ -461,7 +530,9 @@ export default function App() {
       await new Promise((resolve) => setTimeout(resolve, 20));
       const result = isDiscSplit
         ? buildDiscSplitUsdz(usdzPayload)
-        : buildCoinUsdz(usdzPayload);
+        : isGyroLoader
+          ? buildGyroLoaderUsdz(usdzPayload)
+          : buildCoinUsdz(usdzPayload);
       downloadUsdz(
         result.bytes,
         `OriginKit-${componentDefinition.name.replaceAll(" ", "-")}-${Date.now()}.usdz`,
@@ -537,7 +608,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260909X13</span>
+            <span className="version">260909X14</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -570,6 +641,8 @@ export default function App() {
               distance={distance}
               coins={{ count, coinSize, spread, ringSpeed }}
               disc={{ count, innerRadius, thickness: coinSize, burst: spread }}
+              text={text}
+              fontSize={fontSize}
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
@@ -754,6 +827,102 @@ export default function App() {
                   display={distance.toFixed(1)}
                   onChange={setDistance}
                 />
+              </>
+            )}
+            {isGyroLoader && (
+              <>
+                <Slider
+                  label="动画速度"
+                  value={speed}
+                  min={1}
+                  max={100}
+                  step={1}
+                  display={speed.toFixed(0)}
+                  onChange={(value) => {
+                    setSpeed(value);
+                    setDuration((2.45 * 50) / value);
+                  }}
+                />
+                <Slider
+                  label="圆环数量"
+                  value={count}
+                  min={1}
+                  max={8}
+                  step={1}
+                  display={String(count)}
+                  onChange={setCount}
+                />
+                <Slider
+                  label="圆环粗细"
+                  value={coinSize}
+                  min={20}
+                  max={400}
+                  step={1}
+                  display={`${coinSize}%`}
+                  onChange={setCoinSize}
+                />
+                <Slider
+                  label="错开时间"
+                  value={spread}
+                  min={0}
+                  max={600}
+                  step={10}
+                  display={`${spread}ms`}
+                  onChange={setSpread}
+                />
+                <Slider
+                  label="末尾停留"
+                  value={ringSpeed}
+                  min={0}
+                  max={2000}
+                  step={50}
+                  display={`${ringSpeed}ms`}
+                  onChange={setRingSpeed}
+                />
+                <Slider
+                  label="镜头距离"
+                  value={distance}
+                  min={3}
+                  max={20}
+                  step={0.1}
+                  display={distance.toFixed(1)}
+                  onChange={setDistance}
+                />
+              </>
+            )}
+            {isTextEffect && (
+              <>
+                <label className="field text-effect-field">
+                  {componentId === "typewriter" ? "文字（用 | 分隔）" : "文字"}
+                  <input
+                    type="text"
+                    value={text}
+                    onChange={(event) => setText(event.target.value)}
+                  />
+                </label>
+                <Slider
+                  label="字号"
+                  value={fontSize}
+                  min={24}
+                  max={220}
+                  step={1}
+                  display={`${fontSize}px`}
+                  onChange={setFontSize}
+                />
+                {componentId === "shiny-pill" && (
+                  <Slider
+                    label="扫光周期"
+                    value={duration}
+                    min={1}
+                    max={12}
+                    step={0.1}
+                    display={`${duration.toFixed(1)}秒`}
+                    onChange={(value) => {
+                      setSpeed(value);
+                      setDuration(value);
+                    }}
+                  />
+                )}
               </>
             )}
             {componentId === "coin-loader" && (

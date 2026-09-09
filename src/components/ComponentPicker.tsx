@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
-type Option = { id: string; name: string; category: string };
+type Option = { id: string; name: string; category: string; poster: string };
 
 type Props = {
   value: string;
@@ -11,6 +11,11 @@ type Props = {
 export default function ComponentPicker({ value, options, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const [preview, setPreview] = useState<{
+    option: Option;
+    x: number;
+    y: number;
+  } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const selectedIndex = Math.max(
     0,
@@ -33,6 +38,7 @@ export default function ComponentPicker({ value, options, onChange }: Props) {
     if (!option) return;
     onChange(option.id);
     setOpen(false);
+    setPreview(null);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -75,7 +81,12 @@ export default function ComponentPicker({ value, options, onChange }: Props) {
         <span className={`component-picker-arrow ${open ? "open" : ""}`} />
       </button>
       {open && (
-        <div className="component-picker-menu" role="listbox" aria-label="组件">
+        <div
+          className="component-picker-menu"
+          role="listbox"
+          aria-label="组件"
+          onPointerLeave={() => setPreview(null)}
+        >
           {options.map((option, index) => {
             const isSelected = option.id === value;
             return (
@@ -92,7 +103,21 @@ export default function ComponentPicker({ value, options, onChange }: Props) {
                   role="option"
                   aria-selected={isSelected}
                   className={`component-picker-option ${isSelected ? "selected" : ""} ${focusedIndex === index ? "focused" : ""}`}
-                  onPointerEnter={() => setFocusedIndex(index)}
+                  onPointerEnter={(event) => {
+                    setFocusedIndex(index);
+                    setPreview({
+                      option,
+                      x: event.clientX,
+                      y: event.clientY,
+                    });
+                  }}
+                  onPointerMove={(event) =>
+                    setPreview({
+                      option,
+                      x: event.clientX,
+                      y: event.clientY,
+                    })
+                  }
                   onClick={() => choose(index)}
                 >
                   {option.name}
@@ -100,6 +125,21 @@ export default function ComponentPicker({ value, options, onChange }: Props) {
               </div>
             );
           })}
+        </div>
+      )}
+      {open && preview && (
+        <div
+          className="component-picker-preview"
+          style={{
+            left: Math.min(preview.x + 16, window.innerWidth - 204),
+            top: Math.min(
+              Math.max(12, preview.y - 56),
+              window.innerHeight - 132,
+            ),
+          }}
+        >
+          <img src={preview.option.poster} alt="" />
+          <span>{preview.option.name}</span>
         </div>
       )}
     </div>
