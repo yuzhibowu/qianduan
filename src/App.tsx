@@ -34,6 +34,11 @@ const BORDER_ASPECT_SNAPS = [
   { value: 2, label: "2:1" },
   { value: 3, label: "3:1" },
 ];
+const BORDER_DEFAULT_DURATIONS: Record<string, number> = {
+  "glow-border": 10,
+  "neon-border": 9.474,
+  "pulsating-border": 10,
+};
 
 const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
   "coin-loader": {
@@ -64,7 +69,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 0,
     glow: 50,
     borderAspect: 16 / 9,
-    duration: 3,
+    duration: BORDER_DEFAULT_DURATIONS["glow-border"],
   },
   "neon-border": {
     baseColor: "#CC9149",
@@ -79,7 +84,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 24,
     glow: 100,
     borderAspect: 16 / 9,
-    duration: 3,
+    duration: BORDER_DEFAULT_DURATIONS["neon-border"],
   },
   "pulsating-border": {
     baseColor: "#F2244F",
@@ -94,7 +99,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 35,
     glow: 50,
     borderAspect: 16 / 9,
-    duration: 3,
+    duration: BORDER_DEFAULT_DURATIONS["pulsating-border"],
   },
 };
 const colorProfileFor = (target: ColorTarget): ColorComp =>
@@ -149,7 +154,7 @@ export default function App() {
       ? queryDuration
       : queryComponent === "coin-loader"
         ? DEFAULT_LOOP_DURATION
-        : 3,
+        : (BORDER_DEFAULT_DURATIONS[queryComponent] ?? 10),
   );
   const [delay, setDelay] = useState(0);
   const [background, setBackground] = useState("transparent");
@@ -480,7 +485,7 @@ export default function App() {
             OriginKit → Keynote Motion Exporter
           </strong>
           <div className="title-actions">
-            <span className="version">260909X8</span>
+            <span className="version">260909X9</span>
             <button
               className="theme-toggle"
               aria-label={
