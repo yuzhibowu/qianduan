@@ -20,6 +20,7 @@ type ComponentControls = {
   rounded: number;
   glow: number;
   borderAspect: number;
+  duration: number;
 };
 
 const BORDER_ASPECT_SNAPS = [
@@ -48,6 +49,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 35,
     glow: 50,
     borderAspect: 16 / 9,
+    duration: DEFAULT_LOOP_DURATION,
   },
   "glow-border": {
     baseColor: "#00EDFF",
@@ -62,6 +64,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 0,
     glow: 50,
     borderAspect: 16 / 9,
+    duration: 3,
   },
   "neon-border": {
     baseColor: "#CC9149",
@@ -76,6 +79,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 24,
     glow: 100,
     borderAspect: 16 / 9,
+    duration: 3,
   },
   "pulsating-border": {
     baseColor: "#F2244F",
@@ -90,6 +94,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 35,
     glow: 50,
     borderAspect: 16 / 9,
+    duration: 3,
   },
 };
 const colorProfileFor = (target: ColorTarget): ColorComp =>
@@ -139,7 +144,13 @@ export default function App() {
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "1:1">("16:9");
-  const [duration, setDuration] = useState(queryDuration);
+  const [duration, setDuration] = useState(
+    query.get("duration")
+      ? queryDuration
+      : queryComponent === "coin-loader"
+        ? DEFAULT_LOOP_DURATION
+        : 3,
+  );
   const [delay, setDelay] = useState(0);
   const [background, setBackground] = useState("transparent");
   const [loop, setLoop] = useState(true);
@@ -314,6 +325,7 @@ export default function App() {
       rounded,
       glow,
       borderAspect,
+      duration,
     };
     const next =
       componentControlsRef.current[nextId] ??
@@ -332,6 +344,7 @@ export default function App() {
     setRounded(next.rounded);
     setGlow(next.glow);
     setBorderAspect(next.borderAspect);
+    setDuration(next.duration);
     setTime(0);
   };
 
@@ -467,7 +480,7 @@ export default function App() {
             OriginKit → Keynote Motion Exporter
           </strong>
           <div className="title-actions">
-            <span className="version">260909X7</span>
+            <span className="version">260909X8</span>
             <button
               className="theme-toggle"
               aria-label={
