@@ -136,13 +136,88 @@ select {
   padding: 14px 16px 12px;
   border-bottom: 1px solid var(--line);
 }
-.model-type {
+.component-picker {
+  position: relative;
+  z-index: 20;
+  width: 145px;
+}
+.component-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
   height: 30px;
-  max-width: 145px;
-  padding: 0 8px;
+  padding: 0 10px;
   border: 1px solid var(--line);
   background: var(--surface);
+  color: var(--ink);
+  font: inherit;
   font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.component-picker-arrow {
+  width: 7px;
+  height: 7px;
+  margin: -4px 2px 0 10px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 120ms ease;
+}
+.component-picker-arrow.open {
+  margin-top: 4px;
+  transform: rotate(225deg);
+}
+.component-picker-menu {
+  position: absolute;
+  top: calc(100% + 1px);
+  left: 0;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: #000;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 28%);
+}
+.component-picker-option {
+  display: block;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: #000;
+  color: #999;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.component-picker-option.selected {
+  color: #fff;
+}
+.component-picker-option.focused,
+.component-picker-option:hover {
+  color: #fff;
+  background: #000;
+}
+.custom-color-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+}
+.custom-color-option input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 .brand {
   display: inline-block;

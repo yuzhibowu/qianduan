@@ -5,6 +5,7 @@ import { buildCoinUsdz, buildDiscSplitUsdz, downloadUsdz } from "./usdz";
 import { DEFAULT_COMP, FREEFORM_COMP, type ColorComp } from "./lib/color";
 import { componentRegistry, getMotionComponent } from "./component-registry";
 import { cancelBrowserExport, exportInBrowser } from "./browser-export";
+import ComponentPicker from "./components/ComponentPicker";
 
 type ColorTarget = "keynote" | "freeform";
 type ComponentControls = {
@@ -538,7 +539,7 @@ export default function App() {
             OriginKit → Keynote Motion Exporter
           </strong>
           <div className="title-actions">
-            <span className="version">260909X10</span>
+            <span className="version">260909X11</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -604,18 +605,11 @@ export default function App() {
       </section>
       <aside className="side">
         <div className="side-head">
-          <select
-            className="model-type"
-            aria-label="组件"
+          <ComponentPicker
             value={componentId}
-            onChange={(event) => chooseComponent(event.target.value)}
-          >
-            {componentRegistry.map((component) => (
-              <option key={component.id} value={component.id}>
-                {component.name}
-              </option>
-            ))}
-          </select>
+            options={componentRegistry}
+            onChange={chooseComponent}
+          />
           <strong className="brand">饼饼SHOW</strong>
         </div>
         <div className="side-body">
@@ -977,12 +971,17 @@ export default function App() {
               >
                 白色
               </button>
-              <input
-                aria-label="背景颜色"
-                type="color"
-                value={background === "transparent" ? "#4A90E2" : background}
-                onChange={(event) => setBackground(event.target.value)}
-              />
+              <label
+                className={`opt custom-color-option ${!["transparent", "#000000", "#FFFFFF"].includes(background) ? "active" : ""}`}
+              >
+                <span>其它</span>
+                <input
+                  aria-label="其它背景颜色"
+                  type="color"
+                  value={background === "transparent" ? "#808080" : background}
+                  onChange={(event) => setBackground(event.target.value)}
+                />
+              </label>
             </div>
             <label className="check-row">
               <input
