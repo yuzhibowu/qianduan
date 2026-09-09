@@ -11,6 +11,7 @@ type Props = {
   onChange: (value: number) => void;
   snaps?: { value: number; label: string }[];
   snapThreshold?: number;
+  className?: string;
 };
 
 const THUMB = 16;
@@ -26,12 +27,13 @@ export default function Slider({
   onChange,
   snaps,
   snapThreshold = 0,
+  className = "",
 }: Props) {
   const progress = max === min ? 0 : (value - min) / (max - min);
   const split = `calc(${progress * 100}% + ${THUMB / 2 - THUMB * progress}px)`;
   const style = { "--split": split } as CSSProperties;
   return (
-    <div className="slider-field">
+    <div className={`slider-field ${className}`}>
       <div className="slider-head">
         <span>{label}</span>
         <output>{display ?? value}</output>

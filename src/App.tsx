@@ -218,6 +218,7 @@ export default function App() {
           rounded={queryRounded}
           glow={queryGlow}
           borderAspect={queryBorderAspect}
+          canvasAspect={exportWidth / Math.max(1, exportHeight)}
         />
       </div>
     );
@@ -466,7 +467,7 @@ export default function App() {
             OriginKit → Keynote Motion Exporter
           </strong>
           <div className="title-actions">
-            <span className="version">260909X6</span>
+            <span className="version">260909X7</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -502,6 +503,7 @@ export default function App() {
               rounded={rounded}
               glow={glow}
               borderAspect={borderAspect}
+              canvasAspect={aspectRatio === "1:1" ? 1 : 16 / 9}
               timeSeconds={previewTime}
               loopDuration={duration}
             />
@@ -586,6 +588,7 @@ export default function App() {
                 />
                 <Slider
                   label="尺寸比例"
+                  className="aspect-slider"
                   value={borderAspect}
                   min={1 / 3}
                   max={3}

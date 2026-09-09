@@ -642,3 +642,13 @@ html[data-render="frame"] #root {
   inset: 0;
   overflow: visible;
 }
+.aspect-slider .slider-snaps {
+  height: 30px;
+}
+.aspect-slider .slider-snaps > span {
+  font-size: 8px;
+}
+.aspect-slider .slider-snaps > span:nth-child(3),
+.aspect-slider .slider-snaps > span:nth-child(4) {
+  top: 15px;
+}

@@ -13,6 +13,7 @@ export type BorderRendererProps = {
   rounded?: number;
   glow?: number;
   borderAspect?: number;
+  canvasAspect?: number;
   coins?: {
     count: number;
     coinSize: number;
@@ -42,12 +43,14 @@ const panelStyle = (
   distance: number,
   background: string,
   aspect = 16 / 9,
+  canvasAspect = 16 / 9,
 ): CSSProperties => ({
   position: "absolute",
   left: "50%",
   top: "50%",
-  width: `min(72%, calc(58% * ${aspect}))`,
-  height: `min(58%, calc(72% / ${aspect}))`,
+  width: `min(72%, ${(72 * aspect) / canvasAspect}%)`,
+  height: "auto",
+  maxHeight: `min(72%, ${(72 * canvasAspect) / aspect}%)`,
   aspectRatio: String(aspect),
   transform: `translate(-50%,-50%) scale(${20 / clamp(distance, 0.5, 80)})`,
   transformOrigin: "center",
@@ -72,6 +75,7 @@ export function GlowBorder({
   borderWidth = 5,
   rounded = 0,
   borderAspect = 16 / 9,
+  canvasAspect = 16 / 9,
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     rotorSize = Math.ceil(Math.hypot(size.width, size.height)) + 24,
@@ -96,7 +100,7 @@ export function GlowBorder({
     <div className="motion-root">
       <div
         ref={frameRef}
-        style={panelStyle(distance, background, borderAspect)}
+        style={panelStyle(distance, background, borderAspect, canvasAspect)}
       >
         <div
           style={{
@@ -228,6 +232,7 @@ export function NeonBorder({
   rounded = 24,
   glow = 100,
   borderAspect = 16 / 9,
+  canvasAspect = 16 / 9,
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     safeSpeed = clamp(speed, 0, 20),
@@ -315,7 +320,7 @@ export function NeonBorder({
       <div
         ref={frameRef}
         style={{
-          ...panelStyle(distance, background, borderAspect),
+          ...panelStyle(distance, background, borderAspect, canvasAspect),
           borderRadius: radius,
           overflow: "visible",
         }}
@@ -338,6 +343,7 @@ export function PulsatingBorder({
   rounded = 35,
   glow = 50,
   borderAspect = 16 / 9,
+  canvasAspect = 16 / 9,
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     spread = 31,
@@ -349,7 +355,7 @@ export function PulsatingBorder({
     <div className="motion-root">
       <div
         ref={frameRef}
-        style={panelStyle(distance, background, borderAspect)}
+        style={panelStyle(distance, background, borderAspect, canvasAspect)}
       >
         {size.width > 0 && size.height > 0 && (
           <PulsingBorder
