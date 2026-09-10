@@ -676,6 +676,11 @@ button:disabled {
   margin-top: auto;
   padding-bottom: 0 !important;
 }
+.export-compression {
+  margin: 0 0 13px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
 .btn-primary.mov {
   background: var(--surface);
   color: var(--ink);

@@ -792,7 +792,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X1</span>
+            <span className="version">260910X2</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -1462,7 +1462,9 @@ export default function App() {
                 />
               </label>
             </div>
-            <label className="check-row">
+          </section>
+          <section className="export-block">
+            <label className="check-row export-compression">
               <input
                 type="checkbox"
                 checked={pngCompression}
@@ -1470,8 +1472,6 @@ export default function App() {
               />
               无损压缩 PNG 帧（MOV 与 PNG 动图）
             </label>
-          </section>
-          <section className="export-block">
             <button
               className="btn-primary mov"
               disabled={job.running}
@@ -1510,7 +1510,7 @@ export default function App() {
               </>
             )}
             <div className="format-divider">
-              <span>Keynote 原生 3D</span>
+              <span>苹果原生3D格式</span>
             </div>
             <button
               className="btn-primary"
