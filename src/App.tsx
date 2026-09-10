@@ -792,7 +792,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X2</span>
+            <span className="version">260910X3</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -897,32 +897,43 @@ export default function App() {
         </div>
         <div className="side-body">
           <section>
-            <h2>组件参数</h2>
+            <h2>颜色</h2>
             <div className="color-row">
-              <label className="field">
-                主体颜色
-                <input
-                  aria-label="主体颜色"
-                  type="color"
-                  value={hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor}
-                  onChange={(event) => {
-                    setBaseColor(event.target.value);
-                    if (hasMaterialAppearance && appearance.enabled)
-                      updateAppearance((current) => ({
-                        ...current,
-                        material: { ...current.material, color: event.target.value },
-                      }));
-                  }}
-                />
+              <label className="field color-field">
+                <span>主体颜色</span>
+                <span
+                  className="color-swatch"
+                  style={{ background: hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor }}
+                >
+                  <span className="color-code">
+                    {(hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor).toUpperCase()}
+                  </span>
+                  <input
+                    aria-label="主体颜色"
+                    type="color"
+                    value={hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor}
+                    onChange={(event) => {
+                      setBaseColor(event.target.value);
+                      if (hasMaterialAppearance && appearance.enabled)
+                        updateAppearance((current) => ({
+                          ...current,
+                          material: { ...current.material, color: event.target.value },
+                        }));
+                    }}
+                  />
+                </span>
               </label>
-              <label className="field">
-                高光颜色
-                <input
-                  aria-label="高光颜色"
-                  type="color"
-                  value={accentColor}
-                  onChange={(event) => setAccentColor(event.target.value)}
-                />
+              <label className="field color-field">
+                <span>高光颜色</span>
+                <span className="color-swatch" style={{ background: accentColor }}>
+                  <span className="color-code">{accentColor.toUpperCase()}</span>
+                  <input
+                    aria-label="高光颜色"
+                    type="color"
+                    value={accentColor}
+                    onChange={(event) => setAccentColor(event.target.value)}
+                  />
+                </span>
               </label>
             </div>
             {hasMaterialAppearance && (
@@ -1304,7 +1315,6 @@ export default function App() {
             )}
           </section>
           <section>
-            <h2>时间验证</h2>
             <Slider
               label="绝对时间"
               value={previewTime}
@@ -1334,7 +1344,7 @@ export default function App() {
               循环预览
             </label>
           </section>
-          <section>
+          <section className="export-params">
             <h2>导出参数</h2>
             <div className="opts">
               <button
