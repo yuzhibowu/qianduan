@@ -1005,6 +1005,7 @@ export default function FrostedTypeBand(props: FrostedTypeBandProps) {
                 )
                 const peak = (L.refraction / 100) * bandPx * REFRACT_AT_100
                 const parts: string[] = []
+                let displacementFilter = "none"
                 if (peak > 0.5) {
                     const map = refractionMap(prof, cssW, cssH, bandPx)
                     if (map.url) {
@@ -1016,13 +1017,19 @@ export default function FrostedTypeBand(props: FrostedTypeBandProps) {
 
                         feDisp.setAttribute("scale", (peak * 2).toFixed(2))
                         parts.push(`url(#${filterId})`)
+                        displacementFilter = `url(#${filterId})`
                     }
                 }
-                if (L.blur > 0) parts.push(`blur(${Math.round(L.blur)}px)`)
+                const blurFilter = L.blur > 0 ? `blur(${Math.round(L.blur)}px)` : "none"
+                if (L.blur > 0) parts.push(blurFilter)
 
                 const bf = parts.length ? parts.join(" ") : "none"
-                ps.backdropFilter = bf
+                // Chromium rejects SVG url() in backdrop-filter and then drops
+                // the valid blur() too. Preserve OriginKit's WebKit chain while
+                // separating the two effects for Chromium-based preview/export.
+                ps.backdropFilter = blurFilter
                 ps.webkitBackdropFilter = bf
+                ps.filter = displacementFilter
             }
 
             gl.useProgram(prog)

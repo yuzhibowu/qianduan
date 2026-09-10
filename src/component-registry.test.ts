@@ -61,4 +61,12 @@ describe("motion component registry", () => {
       ),
     ).toBe(true);
   });
+
+  it("exports Frosted Type Band as an animated USDZ text ring", () => {
+    expect(getMotionComponent("frosted-type-band").exportCapabilities).toEqual([
+      "mov",
+      "apng",
+      "usdz",
+    ]);
+  });
 });

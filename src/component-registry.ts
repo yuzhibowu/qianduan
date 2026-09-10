@@ -152,7 +152,7 @@ export const componentRegistry: MotionComponentDefinition[] = [
     poster:
       "https://cdn.originkit.dev/components/frosted-type-band-poster.jpg?v=mtcz39rd",
     renderer: FrostedTypeBandRenderer,
-    exportCapabilities: ["mov", "apng"],
+    exportCapabilities: ["mov", "apng", "usdz"],
     triggerMode: "pointer",
   },
   {

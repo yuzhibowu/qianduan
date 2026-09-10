@@ -4,6 +4,7 @@ import { DEFAULT_LOOP_DURATION, rotationsPerCycle } from "./time";
 import {
   buildCoinUsdz,
   buildDiscSplitUsdz,
+  buildFrostedTypeBandUsdz,
   buildGyroLoaderUsdz,
   downloadUsdz,
 } from "./usdz";
@@ -697,7 +698,9 @@ export default function App() {
     });
     try {
       await new Promise((resolve) => setTimeout(resolve, 20));
-      const result = isDiscSplit
+      const result = isFrostedTypeBand
+        ? await buildFrostedTypeBandUsdz(usdzPayload)
+        : isDiscSplit
         ? buildDiscSplitUsdz(usdzPayload)
         : isGyroLoader
           ? buildGyroLoaderUsdz(usdzPayload)
@@ -835,7 +838,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X10</span>
+            <span className="version">260910X11</span>
             <button
               className="theme-toggle"
               aria-label={

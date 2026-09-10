@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildCoinUsdz, buildDiscSplitUsdz, buildGyroLoaderUsdz } from "./usdz";
+import { buildCoinUsdz, buildDiscSplitUsdz, buildFrostedTypeBandUsdz, buildGyroLoaderUsdz } from "./usdz";
 import { DEFAULT_COMP, FREEFORM_COMP } from "./lib/color";
 
 const scratch = mkdtempSync(resolve(tmpdir(), "originkit-usdz-loop-"));
@@ -185,6 +185,52 @@ describe("animated USDZ loop boundary", () => {
     const check = spawnSync("/usr/bin/usdchecker", [output], {
       encoding: "utf8",
     });
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+  });
+
+  it("builds Frosted Type Band as a textured animated 3D ring", async () => {
+    const output = resolve(scratch, "frosted-type-band.usdz");
+    const png = new Uint8Array(Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l8dZAAAAAElFTkSuQmCC",
+      "base64",
+    ));
+    const result = await buildFrostedTypeBandUsdz({
+      duration: 3,
+      delay: 0,
+      fps: 30,
+      speed: 100,
+      ringSpeed: 0,
+      count: 4,
+      coinSize: 100,
+      spread: 100,
+      baseColor: "#FEFF00",
+      frostedTypeBand: {
+        items: "设计|动效|系统|品牌",
+        fontSize: 16,
+        fontFamily: "PingFang SC",
+        fontWeight: 700,
+        fontStyle: "normal",
+        letterSpacing: 0,
+        textColor: "#FEFF00",
+        speed: 100,
+        distance: 810,
+        tilt: 0,
+        gap: 83,
+        blur: 100,
+        refraction: 50,
+        tint: "#FAFAFF42",
+        grain: 0,
+      },
+    }, Array.from({ length: 4 }, () => ({ bytes: png, aspect: 2 })));
+    writeFileSync(output, result.bytes);
+    expect(result.frames).toBe(90);
+    const archive = unzipSync(result.bytes);
+    const usda = strFromU8(archive["model.usda"]);
+    expect(usda).toContain('def Xform "Word4"');
+    expect(usda).toContain("endTimeCode = 89");
+    expect(usda).not.toMatch(/,90:/);
+    expect(archive["textures/word-4.png"]).toBeTruthy();
+    const check = spawnSync("/usr/bin/usdchecker", [output], { encoding: "utf8" });
     expect(check.status, check.stdout + check.stderr).toBe(0);
   });
 });
