@@ -15,6 +15,7 @@ import type { InteractionSample } from "./interaction";
 import FrostedTypeBandRenderer, {
   type FrostedTypeBandSettings,
 } from "./components/FrostedTypeBandRenderer";
+import PaperImageRenderer, { type PaperImageSettings } from "./components/PaperImageRenderer";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -44,6 +45,7 @@ export type MotionComponentDefinition = {
       interactionTrack?: InteractionSample[];
       lightBloom?: Partial<LightBloomSettings>;
       frostedTypeBand?: Partial<FrostedTypeBandSettings>;
+      paperImage?: Partial<PaperImageSettings>;
       appearance?: SurfaceAppearance;
     }
   >;
@@ -143,6 +145,16 @@ export const componentRegistry: MotionComponentDefinition[] = [
     renderer: PulsatingBorder,
     exportCapabilities: ["mov", "apng"],
     triggerMode: "auto",
+  },
+  {
+    id: "paper-image",
+    name: "Paper Image",
+    category: "Image",
+    source: "OriginKit",
+    poster: "https://cdn.originkit.dev/components/paper-image-poster.jpg?v=mszz19st",
+    renderer: PaperImageRenderer,
+    exportCapabilities: ["mov", "apng"],
+    triggerMode: "pointer",
   },
   {
     id: "frosted-type-band",

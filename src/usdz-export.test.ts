@@ -231,6 +231,15 @@ describe("animated USDZ loop boundary", () => {
     expect(usda).not.toMatch(/,90:/);
     expect(archive["textures/text-band.png"]).toBeTruthy();
     expect(usda).not.toContain("Front");
+    expect(usda).toContain(
+      "</FrostedTypeBand/GlassMaterial/Surface.outputs:surface>",
+    );
+    expect(usda).toContain(
+      "</FrostedTypeBand/TextMaterial/Texture.outputs:a>",
+    );
+    expect(usda).not.toContain(
+      "connect = <TextMaterial/Texture.outputs:a>",
+    );
     const check = spawnSync("/usr/bin/usdchecker", [output], { encoding: "utf8" });
     expect(check.status, check.stdout + check.stderr).toBe(0);
   });

@@ -2,6 +2,7 @@ import { PulsingBorder } from "@paper-design/shaders-react";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { InteractionSample } from "../interaction";
 import type { FrostedTypeBandSettings } from "./FrostedTypeBandRenderer";
+import type { PaperImageSettings } from "./PaperImageRenderer";
 
 export type BorderRendererProps = {
   baseColor: string;
@@ -34,6 +35,7 @@ export type BorderRendererProps = {
   interactionTrack?: InteractionSample[];
   previewScale?: number;
   frostedTypeBand?: Partial<FrostedTypeBandSettings>;
+  paperImage?: Partial<PaperImageSettings>;
 };
 type Size = { width: number; height: number };
 const clamp = (v: number, min: number, max: number) =>

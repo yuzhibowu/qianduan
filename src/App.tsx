@@ -19,6 +19,7 @@ import {
   DEFAULT_FROSTED_TYPE_BAND,
   type FrostedTypeBandSettings,
 } from "./components/FrostedTypeBandRenderer";
+import { DEFAULT_PAPER_IMAGE, type PaperImageSettings } from "./components/PaperImageRenderer";
 import {
   DEFAULT_APPEARANCE,
   MATERIAL_PRESETS,
@@ -262,6 +263,11 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     fontFamily: "Inter",
     duration: 19.635,
   },
+  "paper-image": {
+    baseColor: "#FFFFFF", accentColor: "#FFFFFF", speed: 100, ringSpeed: 50,
+    distance: 20, count: 1, coinSize: 100, spread: 100, borderWidth: 5,
+    rounded: 0, glow: 0, borderAspect: 340 / 440, innerRadius: 0, duration: 4,
+  },
 };
 const colorProfileFor = (target: ColorTarget): ColorComp =>
   target === "keynote" ? DEFAULT_COMP : FREEFORM_COMP;
@@ -332,6 +338,13 @@ export default function App() {
       return DEFAULT_FROSTED_TYPE_BAND;
     }
   })();
+  const queryPaperImage: PaperImageSettings = (() => {
+    try {
+      return { ...DEFAULT_PAPER_IMAGE, ...JSON.parse(query.get("paperImage") ?? "{}") };
+    } catch {
+      return DEFAULT_PAPER_IMAGE;
+    }
+  })();
   const queryMaterial = (query.get("material") ?? "silver") as MaterialPresetId;
   const queryMaterialEnabled = query.get("materialEnabled") === "true";
   const queryFrontTexture = query.get("frontTexture") ?? undefined;
@@ -362,6 +375,7 @@ export default function App() {
   const [lightBloom, setLightBloom] = useState<LightBloomSettings>(queryLightBloom);
   const [frostedTypeBand, setFrostedTypeBand] =
     useState<FrostedTypeBandSettings>(queryFrostedTypeBand);
+  const [paperImage, setPaperImage] = useState<PaperImageSettings>(queryPaperImage);
   const interactionStartedRef = useRef(0);
   const interactionPressedRef = useRef(false);
   const lastInteractionSampleRef = useRef(-1);
@@ -422,9 +436,10 @@ export default function App() {
   const isGyroLoader = componentId === "gyro-loader";
   const isLightBloom = componentId === "light-bloom";
   const isFrostedTypeBand = componentId === "frosted-type-band";
+  const isPaperImage = componentId === "paper-image";
   const isTextEffect = ["typewriter", "text-ring", "shiny-pill"].includes(componentId);
   const supportsInteractionRecording =
-    componentDefinition.category === "Interaction" || componentId === "light-bloom";
+    componentDefinition.triggerMode === "pointer";
   const is3DComponent = ["coin-loader", "disc-split", "gyro-loader"].includes(componentId);
   const hasMaterialAppearance = is3DComponent || isTextEffect;
   const appearance = exportMode
@@ -482,6 +497,7 @@ export default function App() {
           interactionTrack={queryInteractionTrack}
           lightBloom={queryLightBloom}
           frostedTypeBand={queryFrostedTypeBand}
+          paperImage={queryPaperImage}
           timeSeconds={Number.isFinite(exportFrameTime) ? exportFrameTime : 0}
           loopDuration={queryDuration}
           background={isLightBloom ? queryBackground : "transparent"}
@@ -529,6 +545,7 @@ export default function App() {
       interactionTrack,
       lightBloom,
       frostedTypeBand,
+      paperImage,
       pngCompression,
       keepFrames: false,
       material: appearance.material.preset,
@@ -564,6 +581,7 @@ export default function App() {
       interactionTrack,
       lightBloom,
       frostedTypeBand,
+      paperImage,
       pngCompression,
       appearance.material.preset,
       appearance.enabled,
@@ -838,7 +856,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X12</span>
+            <span className="version">260910X14</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -888,6 +906,7 @@ export default function App() {
               interactionTrack={replayingInteraction ? interactionTrack : []}
               lightBloom={lightBloom}
               frostedTypeBand={frostedTypeBand}
+              paperImage={paperImage}
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
@@ -980,7 +999,7 @@ export default function App() {
             </section>
           )}
           <section>
-            <h3 className="field-heading color-heading">颜色</h3>
+            {!isPaperImage && <h3 className="field-heading color-heading">颜色</h3>}
             {isLightBloom && (
               <label className="field color-field light-bloom-background">
                 <span>背景颜色</span>
@@ -1045,7 +1064,7 @@ export default function App() {
                 </label>
               </div>
             )}
-            {!isFrostedTypeBand && <div className="color-row">
+            {!isFrostedTypeBand && !isPaperImage && <div className="color-row">
               <label className="field color-field">
                 <span>主体颜色</span>
                 <span
@@ -1309,6 +1328,36 @@ export default function App() {
                 <h3 className="field-heading">光标</h3>
                 <Slider label="惯性衰减" value={frostedTypeBand.damping} min={1} max={100} step={1} display={`${frostedTypeBand.damping}%`} onChange={(damping) => setFrostedTypeBand((value) => ({ ...value, damping }))} />
                 <Slider label="悬浮减速" value={frostedTypeBand.hover} min={0} max={200} step={1} display={`${frostedTypeBand.hover}%`} onChange={(hover) => setFrostedTypeBand((value) => ({ ...value, hover }))} />
+              </>
+            )}
+            {isPaperImage && (
+              <>
+                <label className="field text-effect-field">
+                  图片地址
+                  <input type="text" value={paperImage.image} onChange={(event) => setPaperImage((value) => ({ ...value, image: event.target.value }))} />
+                </label>
+                <label className="field file-field">
+                  本机图片
+                  <input type="file" accept="image/*" onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => setPaperImage((value) => ({ ...value, image: typeof reader.result === "string" ? reader.result : value.image }));
+                    reader.readAsDataURL(file);
+                  }} />
+                </label>
+                <h3 className="field-heading">尺寸</h3>
+                <Slider label="卡片宽度" value={paperImage.cardWidth} min={40} max={800} step={1} display={`${paperImage.cardWidth}px`} onChange={(cardWidth) => setPaperImage((value) => ({ ...value, cardWidth }))} />
+                <Slider label="卡片高度" value={paperImage.cardHeight} min={40} max={800} step={1} display={`${paperImage.cardHeight}px`} onChange={(cardHeight) => setPaperImage((value) => ({ ...value, cardHeight }))} />
+                <h3 className="field-heading">模式</h3>
+                <div className="opts">
+                  <button className={`opt ${paperImage.mode === "Wave" ? "active" : ""}`} onClick={() => setPaperImage((value) => ({ ...value, mode: "Wave" }))}>Wave</button>
+                  <button className={`opt ${paperImage.mode === "Lift" ? "active" : ""}`} onClick={() => setPaperImage((value) => ({ ...value, mode: "Lift" }))}>Lift</button>
+                </div>
+                <Slider label="悬浮抬升" value={paperImage.hoverLift} min={0} max={100} step={1} display={`${paperImage.hoverLift}%`} onChange={(hoverLift) => setPaperImage((value) => ({ ...value, hoverLift }))} />
+                <Slider label="静止抬升" value={paperImage.restLift} min={0} max={100} step={1} display={`${paperImage.restLift}%`} onChange={(restLift) => setPaperImage((value) => ({ ...value, restLift }))} />
+                <Slider label="形变深度" value={paperImage.depth} min={0} max={100} step={1} display={`${paperImage.depth}%`} onChange={(depth) => setPaperImage((value) => ({ ...value, depth }))} />
+                <Slider label="高光" value={paperImage.sheen} min={0} max={100} step={1} display={`${paperImage.sheen}%`} onChange={(sheen) => setPaperImage((value) => ({ ...value, sheen }))} />
               </>
             )}
             {isDiscSplit && (

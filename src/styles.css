@@ -541,6 +541,7 @@ h2 {
 .frosted-type-band-root {
   overflow: hidden;
 }
+.paper-image-root { overflow: hidden; }
 .local-font-picker {
   position: relative;
   display: grid;

@@ -768,7 +768,7 @@ def Xform "FrostedTypeBand" {
   double xformOp:rotateZ = ${settings.tilt.toFixed(6)}
   uniform token[] xformOpOrder = ["xformOp:rotateZ"]
   def Material "GlassMaterial" {
-    token outputs:surface.connect = <GlassMaterial/Surface.outputs:surface>
+    token outputs:surface.connect = </FrostedTypeBand/GlassMaterial/Surface.outputs:surface>
     def Shader "Surface" {
       uniform token info:id = "UsdPreviewSurface"
       color3f inputs:diffuseColor = (${tint.color.map((value) => value.toFixed(6)).join(",")})
@@ -779,11 +779,11 @@ def Xform "FrostedTypeBand" {
     }
   }
   def Material "TextMaterial" {
-    token outputs:surface.connect = <TextMaterial/Surface.outputs:surface>
+    token outputs:surface.connect = </FrostedTypeBand/TextMaterial/Surface.outputs:surface>
     def Shader "Surface" {
       uniform token info:id = "UsdPreviewSurface"
-      color3f inputs:diffuseColor.connect = <TextMaterial/Texture.outputs:rgb>
-      float inputs:opacity.connect = <TextMaterial/Texture.outputs:a>
+      color3f inputs:diffuseColor.connect = </FrostedTypeBand/TextMaterial/Texture.outputs:rgb>
+      float inputs:opacity.connect = </FrostedTypeBand/TextMaterial/Texture.outputs:a>
       float inputs:opacityThreshold = 0.02
       float inputs:metallic = 0
       float inputs:roughness = 0.28
@@ -793,7 +793,7 @@ def Xform "FrostedTypeBand" {
       uniform token info:id = "UsdUVTexture"
       asset inputs:file = @textures/text-band.png@
       token inputs:sourceColorSpace = "sRGB"
-      float2 inputs:st.connect = <TextMaterial/Primvar.outputs:result>
+      float2 inputs:st.connect = </FrostedTypeBand/TextMaterial/Primvar.outputs:result>
       float3 outputs:rgb
       float outputs:a
     }

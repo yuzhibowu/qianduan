@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { MotionComponentDefinition } from "../component-registry";
 import type { BorderRendererProps } from "./BorderComponents";
+import { DEFAULT_PAPER_IMAGE } from "./PaperImageRenderer";
 
 type Option = MotionComponentDefinition;
 
@@ -118,6 +119,11 @@ function AnimatedPreview({ option }: { option: Option }) {
                 fontSize: 16,
                 items: "DESIGN|MOTION|SYSTEMS|BRAND",
               }
+            : undefined
+        }
+        paperImage={
+          option.id === "paper-image"
+            ? { ...DEFAULT_PAPER_IMAGE, cardWidth: 170, cardHeight: 220 }
             : undefined
         }
       />

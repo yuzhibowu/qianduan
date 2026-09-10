@@ -69,4 +69,11 @@ describe("motion component registry", () => {
       "usdz",
     ]);
   });
+
+  it("registers official Paper Image as an interactive image effect", () => {
+    const component = getMotionComponent("paper-image");
+    expect(component.category).toBe("Image");
+    expect(component.triggerMode).toBe("pointer");
+    expect(component.exportCapabilities).toEqual(["mov", "apng"]);
+  });
 });

@@ -4,6 +4,7 @@ import { zipSync } from "fflate";
 import type { InteractionSample } from "./interaction";
 import type { LightBloomSettings } from "./components/LightBloom";
 import type { FrostedTypeBandSettings } from "./components/FrostedTypeBandRenderer";
+import type { PaperImageSettings } from "./components/PaperImageRenderer";
 
 export type BrowserExportFormat = "mov" | "apng";
 
@@ -35,6 +36,7 @@ export type BrowserExportSettings = {
   interactionTrack: InteractionSample[];
   lightBloom: LightBloomSettings;
   frostedTypeBand: FrostedTypeBandSettings;
+  paperImage: PaperImageSettings;
   pngCompression: boolean;
   keepFrames: boolean;
   material: string;
@@ -180,6 +182,7 @@ async function renderFrames(
     bloomGrain: String(settings.lightBloom.grain),
     bloomVignette: String(settings.lightBloom.vignette),
     frostedTypeBand: JSON.stringify(settings.frostedTypeBand),
+    paperImage: JSON.stringify(settings.paperImage),
     canvasAspect: String(settings.width / Math.max(1, settings.height)),
     material: settings.material,
     materialEnabled: String(settings.materialEnabled),
