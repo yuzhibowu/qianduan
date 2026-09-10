@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { MotionComponentDefinition } from "../component-registry";
 import type { BorderRendererProps } from "./BorderComponents";
-import { DEFAULT_PAPER_IMAGE } from "./PaperImageRenderer";
+import { DEFAULT_PAPER_IMAGE, PAPER_IMAGE_LOOP_DURATION } from "./PaperImageRenderer";
 
 type Option = MotionComponentDefinition;
 
@@ -66,6 +66,7 @@ const PREVIEW_DURATIONS: Record<string, number> = {
   "pulsating-border": 10,
   "light-bloom": 10,
   "frosted-type-band": 19.635,
+  "paper-image": PAPER_IMAGE_LOOP_DURATION,
 };
 
 function AnimatedPreview({ option }: { option: Option }) {
@@ -112,7 +113,7 @@ function AnimatedPreview({ option }: { option: Option }) {
         text={isTypewriter ? "Interfaces|Experiences" : isTextRing ? "CIRCULAR|TEXT" : "SHINY PILL"}
         fontSize={isTypewriter ? 38 : isTextRing ? 12 : 42}
         fontFamily="PingFang SC"
-        previewScale={isText ? 0.62 : 1}
+        previewScale={option.id === "paper-image" ? 0.12 : isText ? 0.62 : 1}
         frostedTypeBand={
           option.id === "frosted-type-band"
             ? {
@@ -123,7 +124,7 @@ function AnimatedPreview({ option }: { option: Option }) {
         }
         paperImage={
           option.id === "paper-image"
-            ? { ...DEFAULT_PAPER_IMAGE, cardWidth: 170, cardHeight: 220 }
+            ? DEFAULT_PAPER_IMAGE
             : undefined
         }
       />

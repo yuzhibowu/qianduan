@@ -22,27 +22,40 @@ export const DEFAULT_PAPER_IMAGE: PaperImageSettings = {
   depth: 40,
   sheen: 35,
 };
+export const PAPER_IMAGE_LOOP_DURATION = Math.PI * 2;
 
 export default function PaperImageRenderer({
   timeSeconds,
   interactionTrack = [],
   paperImage,
+  previewScale = 1,
 }: BorderRendererProps & { paperImage?: Partial<PaperImageSettings> }) {
   const settings = { ...DEFAULT_PAPER_IMAGE, ...paperImage };
+  const content = (
+    <PaperImage
+      image={settings.image}
+      cardWidth={settings.cardWidth}
+      cardHeight={settings.cardHeight}
+      mode={settings.mode}
+      hoverLift={settings.hoverLift}
+      restLift={settings.restLift}
+      depth={settings.depth}
+      sheen={settings.sheen}
+      timeSeconds={timeSeconds % PAPER_IMAGE_LOOP_DURATION}
+      interactionTrack={interactionTrack}
+    />
+  );
   return (
     <div className="motion-root paper-image-root">
-      <PaperImage
-        image={settings.image}
-        cardWidth={settings.cardWidth}
-        cardHeight={settings.cardHeight}
-        mode={settings.mode}
-        hoverLift={settings.hoverLift}
-        restLift={settings.restLift}
-        depth={settings.depth}
-        sheen={settings.sheen}
-        timeSeconds={timeSeconds}
-        interactionTrack={interactionTrack}
-      />
+      {previewScale < 1 ? (
+        <div className="paper-image-thumbnail-fit" style={{
+          width: settings.cardWidth,
+          height: settings.cardHeight,
+          transform: `translate(-50%, -50%) scale(${previewScale})`,
+        }}>
+          {content}
+        </div>
+      ) : content}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { componentRegistry, getMotionComponent } from "./component-registry";
+import { PAPER_IMAGE_LOOP_DURATION } from "./components/PaperImageRenderer";
 
 describe("motion component registry", () => {
   it("registers Coin Loader with its real export capabilities", () => {
@@ -75,5 +76,6 @@ describe("motion component registry", () => {
     expect(component.category).toBe("Image");
     expect(component.triggerMode).toBe("pointer");
     expect(component.exportCapabilities).toEqual(["mov", "apng"]);
+    expect(PAPER_IMAGE_LOOP_DURATION).toBeCloseTo(6.283185, 5);
   });
 });

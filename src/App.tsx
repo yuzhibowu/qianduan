@@ -19,7 +19,7 @@ import {
   DEFAULT_FROSTED_TYPE_BAND,
   type FrostedTypeBandSettings,
 } from "./components/FrostedTypeBandRenderer";
-import { DEFAULT_PAPER_IMAGE, type PaperImageSettings } from "./components/PaperImageRenderer";
+import { DEFAULT_PAPER_IMAGE, PAPER_IMAGE_LOOP_DURATION, type PaperImageSettings } from "./components/PaperImageRenderer";
 import {
   DEFAULT_APPEARANCE,
   MATERIAL_PRESETS,
@@ -266,7 +266,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
   "paper-image": {
     baseColor: "#FFFFFF", accentColor: "#FFFFFF", speed: 100, ringSpeed: 50,
     distance: 20, count: 1, coinSize: 100, spread: 100, borderWidth: 5,
-    rounded: 0, glow: 0, borderAspect: 340 / 440, innerRadius: 0, duration: 4,
+    rounded: 0, glow: 0, borderAspect: 340 / 440, innerRadius: 0, duration: PAPER_IMAGE_LOOP_DURATION,
   },
 };
 const colorProfileFor = (target: ColorTarget): ColorComp =>
@@ -856,7 +856,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X14</span>
+            <span className="version">260910X16</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -1336,16 +1336,19 @@ export default function App() {
                   图片地址
                   <input type="text" value={paperImage.image} onChange={(event) => setPaperImage((value) => ({ ...value, image: event.target.value }))} />
                 </label>
-                <label className="field file-field">
-                  本机图片
-                  <input type="file" accept="image/*" onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = () => setPaperImage((value) => ({ ...value, image: typeof reader.result === "string" ? reader.result : value.image }));
-                    reader.readAsDataURL(file);
-                  }} />
-                </label>
+                <div className="field file-field">
+                  <span>本机图片</span>
+                  <label className="opt paper-image-file-button">
+                    <span>选择图片</span>
+                    <input type="file" accept="image/*" onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => setPaperImage((value) => ({ ...value, image: typeof reader.result === "string" ? reader.result : value.image }));
+                      reader.readAsDataURL(file);
+                    }} />
+                  </label>
+                </div>
                 <h3 className="field-heading">尺寸</h3>
                 <Slider label="卡片宽度" value={paperImage.cardWidth} min={40} max={800} step={1} display={`${paperImage.cardWidth}px`} onChange={(cardWidth) => setPaperImage((value) => ({ ...value, cardWidth }))} />
                 <Slider label="卡片高度" value={paperImage.cardHeight} min={40} max={800} step={1} display={`${paperImage.cardHeight}px`} onChange={(cardHeight) => setPaperImage((value) => ({ ...value, cardHeight }))} />

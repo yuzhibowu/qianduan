@@ -542,6 +542,29 @@ h2 {
   overflow: hidden;
 }
 .paper-image-root { overflow: hidden; }
+.paper-image-thumbnail-fit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center;
+}
+.paper-image-file-button {
+  position: relative;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+}
+.paper-image-file-button input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
 .local-font-picker {
   position: relative;
   display: grid;
