@@ -907,10 +907,10 @@ html[data-render="frame"] #root {
     linear-gradient(-45deg, transparent 75%, #3a3a3c 75%);
 }
 .color-correction {
-  margin-top: 10px;
-  padding-top: 2px;
+  margin: 0 0 10px;
 }
 .color-switch {
+  margin: 0;
   font-weight: 780;
   color: var(--ink);
 }

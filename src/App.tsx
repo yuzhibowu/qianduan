@@ -241,8 +241,6 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
 };
 const colorProfileFor = (target: ColorTarget): ColorComp =>
   target === "keynote" ? DEFAULT_COMP : FREEFORM_COMP;
-const colorTargetLabel = (target: ColorTarget) =>
-  target === "keynote" ? "Keynote" : "无边记";
 
 export default function App() {
   const query = new URLSearchParams(window.location.search);
@@ -800,7 +798,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X4</span>
+            <span className="version">260910X5</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -1526,15 +1524,19 @@ export default function App() {
                 取消导出
               </button>
             )}
-            <div className="progress">
-              <span style={{ width: `${job.progress}%` }} />
-            </div>
-            <p className="status">
-              {job.stage}
-              {job.totalFrames > 0
-                ? ` · ${job.frame} / ${job.totalFrames} · ${Math.round(job.progress)}%`
-                : ""}
-            </p>
+            {job.running && (
+              <>
+                <div className="progress">
+                  <span style={{ width: `${job.progress}%` }} />
+                </div>
+                <p className="status">
+                  {job.stage}
+                  {job.totalFrames > 0
+                    ? ` · ${job.frame} / ${job.totalFrames} · ${Math.round(job.progress)}%`
+                    : ""}
+                </p>
+              </>
+            )}
             {job.error && <p className="error">{job.error}</p>}
             {job.outputPath && (
               <>
@@ -1547,6 +1549,91 @@ export default function App() {
             <div className="format-divider">
               <span>苹果原生3D格式</span>
             </div>
+            {componentDefinition.exportCapabilities.includes("usdz") && (
+              <div className="color-correction">
+                <label className="check-row color-switch">
+                  <input
+                    type="checkbox"
+                    checked={colorCorrection}
+                    onChange={(event) =>
+                      setColorCorrection(event.target.checked)
+                    }
+                  />
+                  <span>偏色抵消</span>
+                </label>
+                {colorCorrection && (
+                  <>
+                    <div
+                      className="opts"
+                      role="group"
+                      aria-label="导出给哪个 App 使用"
+                    >
+                      <button
+                        className={`opt ${colorTarget === "keynote" ? "active" : ""}`}
+                        aria-pressed={colorTarget === "keynote"}
+                        onClick={() => chooseColorTarget("keynote")}
+                      >
+                        Keynote
+                      </button>
+                      <button
+                        className={`opt ${colorTarget === "freeform" ? "active" : ""}`}
+                        aria-pressed={colorTarget === "freeform"}
+                        onClick={() => chooseColorTarget("freeform")}
+                      >
+                        无边记
+                      </button>
+                    </div>
+                    <details className="color-tweaks">
+                      <summary>重新校准（一般不用）</summary>
+                      <Slider
+                        label="补光（换取更亮的颜色上限）"
+                        value={Math.round(emissiveLift * 100)}
+                        min={0}
+                        max={100}
+                        step={5}
+                        display={`${Math.round(emissiveLift * 100)}%`}
+                        onChange={(value) => setEmissiveLift(value / 100)}
+                      />
+                      <p className="color-hint">
+                        补光会用同一份颜色同时写入自发光，提高亮色上限；加得越多，立体明暗会越平。改动后需要重新校准。
+                      </p>
+                      <label className="check-row">
+                        <input
+                          type="checkbox"
+                          checked={unlit}
+                          onChange={(event) => setUnlit(event.target.checked)}
+                        />
+                        <span>完全关掉灯光（补光拉满）</span>
+                      </label>
+                      {colorMismatch && (
+                        <p className="color-warning">
+                          当前内置校准是在补光{" "}
+                          {Math.round(
+                            (activeColorProfile.calibratedLift ?? 0) * 100,
+                          )}
+                          %、灯光
+                          {activeColorProfile.calibratedUnlit ? "关着" : "开着"}
+                          时测得；当前设置不同，颜色会偏。
+                        </p>
+                      )}
+                      <p className="color-hint">
+                        当前：{activeColorProfile.calibratedAt ?? "无校准"}
+                        。这是与三棱柱项目同步的 117 格实测校准档。
+                      </p>
+                      <button
+                        className="btn reset-profile"
+                        onClick={() => {
+                          setEmissiveLift(activeColorProfile.calibratedLift ?? 0.5);
+                          setUnlit(activeColorProfile.calibratedUnlit ?? false);
+                        }}
+                      >
+                        恢复内置校准
+                      </button>
+                    </details>
+                  </>
+                )}
+              </div>
+            )}
             <button
               className="btn-primary"
               title={
@@ -1567,87 +1654,6 @@ export default function App() {
                   ? "导出动画 USDZ"
                   : "该组件不支持 USDZ"}
             </button>
-            {componentDefinition.exportCapabilities.includes("usdz") && (
-              <div className="color-correction">
-                <div
-                  className="opts"
-                  role="group"
-                  aria-label="导出给哪个 App 使用"
-                >
-                  <button
-                    className={`opt ${colorCorrection && colorTarget === "keynote" ? "active" : ""}`}
-                    aria-pressed={colorCorrection && colorTarget === "keynote"}
-                    onClick={() => chooseColorTarget("keynote")}
-                  >
-                    Keynote
-                  </button>
-                  <button
-                    className={`opt ${colorCorrection && colorTarget === "freeform" ? "active" : ""}`}
-                    aria-pressed={colorCorrection && colorTarget === "freeform"}
-                    onClick={() => chooseColorTarget("freeform")}
-                  >
-                    无边记
-                  </button>
-                </div>
-                <label className="check-row color-switch">
-                  <input
-                    type="checkbox"
-                    checked={colorCorrection}
-                    onChange={(event) =>
-                      setColorCorrection(event.target.checked)
-                    }
-                  />
-                  <span>{colorTargetLabel(colorTarget)} 偏色抵消</span>
-                </label>
-                <details className="color-tweaks">
-                  <summary>重新校准（一般不用）</summary>
-                  <Slider
-                    label="补光（换取更亮的颜色上限）"
-                    value={Math.round(emissiveLift * 100)}
-                    min={0}
-                    max={100}
-                    step={5}
-                    display={`${Math.round(emissiveLift * 100)}%`}
-                    onChange={(value) => setEmissiveLift(value / 100)}
-                  />
-                  <p className="color-hint">
-                    补光会用同一份颜色同时写入自发光，提高亮色上限；加得越多，立体明暗会越平。改动后需要重新校准。
-                  </p>
-                  <label className="check-row">
-                    <input
-                      type="checkbox"
-                      checked={unlit}
-                      onChange={(event) => setUnlit(event.target.checked)}
-                    />
-                    <span>完全关掉灯光（补光拉满）</span>
-                  </label>
-                  {colorMismatch && (
-                    <p className="color-warning">
-                      当前内置校准是在补光{" "}
-                      {Math.round(
-                        (activeColorProfile.calibratedLift ?? 0) * 100,
-                      )}
-                      %、灯光
-                      {activeColorProfile.calibratedUnlit ? "关着" : "开着"}
-                      时测得；当前设置不同，颜色会偏。
-                    </p>
-                  )}
-                  <p className="color-hint">
-                    当前：{activeColorProfile.calibratedAt ?? "无校准"}
-                    。这是与三棱柱项目同步的 117 格实测校准档。
-                  </p>
-                  <button
-                    className="btn reset-profile"
-                    onClick={() => {
-                      setEmissiveLift(activeColorProfile.calibratedLift ?? 0.5);
-                      setUnlit(activeColorProfile.calibratedUnlit ?? false);
-                    }}
-                  >
-                    恢复内置校准
-                  </button>
-                </details>
-              </div>
-            )}
             {usdzJob.summary && <p className="status">{usdzJob.summary}</p>}
             {usdzJob.error && <p className="error">{usdzJob.error}</p>}
             {usdzJob.outputPath && (
