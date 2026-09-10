@@ -429,6 +429,9 @@ h2 {
   height: 32px;
   overflow: hidden;
 }
+.color-swatch.is-white {
+  border: 1px solid var(--line);
+}
 .color-swatch input[type="color"] {
   position: absolute;
   inset: 0;
@@ -532,7 +535,7 @@ h2 {
   margin-top: 20px;
 }
 .light-bloom-background {
-  margin-top: 14px;
+  margin: 0 0 8px;
 }
 .local-font-picker {
   position: relative;
@@ -710,6 +713,9 @@ button:disabled {
   padding-bottom: 0 !important;
 }
 .export-params {
+  border-top: 1px solid var(--line) !important;
+}
+.time-controls {
   border-top: 1px solid var(--line) !important;
 }
 .export-compression {

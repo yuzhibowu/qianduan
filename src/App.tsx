@@ -798,7 +798,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X5</span>
+            <span className="version">260910X6</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -904,11 +904,28 @@ export default function App() {
         <div className="side-body">
           <section>
             <h3 className="field-heading color-heading">颜色</h3>
+            {isLightBloom && (
+              <label className="field color-field light-bloom-background">
+                <span>背景颜色</span>
+                <span
+                  className={`color-swatch ${lightBloom.background.toUpperCase() === "#FFFFFF" ? "is-white" : ""}`}
+                  style={{ background: lightBloom.background, color: colorCodeInk(lightBloom.background) }}
+                >
+                  <span className="color-code">{lightBloom.background.toUpperCase()}</span>
+                  <input
+                    aria-label="背景颜色"
+                    type="color"
+                    value={lightBloom.background}
+                    onChange={(event) => setLightBloom((value) => ({ ...value, background: event.target.value }))}
+                  />
+                </span>
+              </label>
+            )}
             <div className="color-row">
               <label className="field color-field">
                 <span>主体颜色</span>
                 <span
-                  className="color-swatch"
+                  className={`color-swatch ${(hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor).toUpperCase() === "#FFFFFF" ? "is-white" : ""}`}
                   style={{
                     background: hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor,
                     color: colorCodeInk(hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor),
@@ -935,7 +952,7 @@ export default function App() {
               <label className="field color-field">
                 <span>高光颜色</span>
                 <span
-                  className="color-swatch"
+                  className={`color-swatch ${accentColor.toUpperCase() === "#FFFFFF" ? "is-white" : ""}`}
                   style={{ background: accentColor, color: colorCodeInk(accentColor) }}
                 >
                   <span className="color-code">{accentColor.toUpperCase()}</span>
@@ -1071,21 +1088,6 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <label className="field color-field light-bloom-background">
-                  <span>背景</span>
-                  <span
-                    className="color-swatch"
-                    style={{ background: lightBloom.background, color: colorCodeInk(lightBloom.background) }}
-                  >
-                    <span className="color-code">{lightBloom.background.toUpperCase()}</span>
-                    <input
-                      aria-label="背景"
-                      type="color"
-                      value={lightBloom.background}
-                      onChange={(event) => setLightBloom((value) => ({ ...value, background: event.target.value }))}
-                    />
-                  </span>
-                </label>
                 <Slider label="动画速度" value={speed} min={0} max={100} step={1} display={speed.toFixed(0)} onChange={setSpeed} />
                 <Slider label="悬浮强度" value={lightBloom.hover} min={0} max={200} step={1} display={`${lightBloom.hover}%`} onChange={(hover) => setLightBloom((value) => ({ ...value, hover }))} />
                 <h3 className="field-heading">光源</h3>
@@ -1337,7 +1339,7 @@ export default function App() {
               </>
             )}
           </section>
-          <section>
+          <section className="time-controls">
             <Slider
               label="绝对时间"
               value={previewTime}
