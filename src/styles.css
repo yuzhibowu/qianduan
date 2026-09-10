@@ -685,6 +685,9 @@ button:disabled {
   border-top: 0;
 }
 .background-options { margin-top: 8px; }
+.global-background-section {
+  border-bottom: 1px solid var(--line) !important;
+}
 .opts.four input {
   width: 100%;
   height: 32px;

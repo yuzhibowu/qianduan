@@ -337,7 +337,6 @@ export default function App() {
   const [delay, setDelay] = useState(0);
   const [background, setBackground] = useState("transparent");
   const [loop, setLoop] = useState(true);
-  const [keepFrames, setKeepFrames] = useState(false);
   const [pngCompression, setPngCompression] = useState(false);
   const [colorCorrection, setColorCorrection] = useState(false);
   const [colorTarget, setColorTarget] = useState<ColorTarget>("keynote");
@@ -492,7 +491,7 @@ export default function App() {
       interactionTrack,
       lightBloom,
       pngCompression,
-      keepFrames,
+      keepFrames: false,
       material: appearance.material.preset,
       materialEnabled: appearance.enabled,
       frontTexture: appearance.frontTexture,
@@ -526,7 +525,6 @@ export default function App() {
       interactionTrack,
       lightBloom,
       pngCompression,
-      keepFrames,
       appearance.material.preset,
       appearance.enabled,
       appearance.frontTexture,
@@ -798,7 +796,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X6</span>
+            <span className="version">260910X7</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -902,6 +900,40 @@ export default function App() {
           <strong className="brand">饼饼SHOW</strong>
         </div>
         <div className="side-body">
+          <section className="global-background-section">
+            <h3 className="field-heading color-heading">背景颜色</h3>
+            <div className="opts four background-options">
+              <button
+                className={`opt ${background === "transparent" ? "active" : ""}`}
+                onClick={() => setBackground("transparent")}
+              >
+                透明
+              </button>
+              <button
+                className={`opt ${background === "#000000" ? "active" : ""}`}
+                onClick={() => setBackground("#000000")}
+              >
+                黑色
+              </button>
+              <button
+                className={`opt ${background === "#FFFFFF" ? "active" : ""}`}
+                onClick={() => setBackground("#FFFFFF")}
+              >
+                白色
+              </button>
+              <label
+                className={`opt custom-color-option ${!["transparent", "#000000", "#FFFFFF"].includes(background) ? "active" : ""}`}
+              >
+                <span>其它</span>
+                <input
+                  aria-label="其它背景颜色"
+                  type="color"
+                  value={background === "transparent" ? "#808080" : background}
+                  onChange={(event) => setBackground(event.target.value)}
+                />
+              </label>
+            </div>
+          </section>
           <section>
             <h3 className="field-heading color-heading">颜色</h3>
             {isLightBloom && (
@@ -1355,14 +1387,6 @@ export default function App() {
             <label className="check-row">
               <input
                 type="checkbox"
-                checked={keepFrames}
-                onChange={(event) => setKeepFrames(event.target.checked)}
-              />
-              保留透明 PNG 序列
-            </label>
-            <label className="check-row">
-              <input
-                type="checkbox"
                 checked={loop}
                 onChange={(event) => setLoop(event.target.checked)}
               />
@@ -1462,38 +1486,6 @@ export default function App() {
                   step="0.1"
                   value={delay}
                   onChange={(event) => setDelay(Number(event.target.value))}
-                />
-              </label>
-            </div>
-            <h3 className="field-heading">背景颜色</h3>
-            <div className="opts four background-options">
-              <button
-                className={`opt ${background === "transparent" ? "active" : ""}`}
-                onClick={() => setBackground("transparent")}
-              >
-                透明
-              </button>
-              <button
-                className={`opt ${background === "#000000" ? "active" : ""}`}
-                onClick={() => setBackground("#000000")}
-              >
-                黑色
-              </button>
-              <button
-                className={`opt ${background === "#FFFFFF" ? "active" : ""}`}
-                onClick={() => setBackground("#FFFFFF")}
-              >
-                白色
-              </button>
-              <label
-                className={`opt custom-color-option ${!["transparent", "#000000", "#FFFFFF"].includes(background) ? "active" : ""}`}
-              >
-                <span>其它</span>
-                <input
-                  aria-label="其它背景颜色"
-                  type="color"
-                  value={background === "transparent" ? "#808080" : background}
-                  onChange={(event) => setBackground(event.target.value)}
                 />
               </label>
             </div>
