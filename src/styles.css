@@ -426,7 +426,7 @@ h2 {
   display: grid;
   place-items: center;
   width: 100%;
-  height: 40px;
+  height: 32px;
   overflow: hidden;
 }
 .color-swatch input[type="color"] {
@@ -442,11 +442,11 @@ h2 {
 .color-code {
   position: relative;
   z-index: 1;
-  color: #fff;
+  color: inherit;
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.04em;
-  text-shadow: 0 1px 3px rgb(0 0 0 / 85%);
+  text-shadow: none;
   pointer-events: none;
 }
 .appearance-panel {
@@ -675,6 +675,11 @@ button:disabled {
   color: var(--label);
   font-size: 12px;
   font-weight: 680;
+}
+.color-heading {
+  margin: 0 0 8px;
+  padding-top: 0;
+  border-top: 0;
 }
 .background-options { margin-top: 8px; }
 .opts.four input {

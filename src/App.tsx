@@ -60,6 +60,14 @@ const BORDER_DEFAULT_DURATIONS: Record<string, number> = {
   "pulsating-border": 10,
 };
 
+function colorCodeInk(hex: string) {
+  const value = hex.replace("#", "");
+  const red = Number.parseInt(value.slice(0, 2), 16);
+  const green = Number.parseInt(value.slice(2, 4), 16);
+  const blue = Number.parseInt(value.slice(4, 6), 16);
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 155 ? "#000" : "#fff";
+}
+
 const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
   "coin-loader": {
     baseColor: "#FFFFFF",
@@ -792,7 +800,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X3</span>
+            <span className="version">260910X4</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -897,13 +905,16 @@ export default function App() {
         </div>
         <div className="side-body">
           <section>
-            <h2>颜色</h2>
+            <h3 className="field-heading color-heading">颜色</h3>
             <div className="color-row">
               <label className="field color-field">
                 <span>主体颜色</span>
                 <span
                   className="color-swatch"
-                  style={{ background: hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor }}
+                  style={{
+                    background: hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor,
+                    color: colorCodeInk(hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor),
+                  }}
                 >
                   <span className="color-code">
                     {(hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor).toUpperCase()}
@@ -925,7 +936,10 @@ export default function App() {
               </label>
               <label className="field color-field">
                 <span>高光颜色</span>
-                <span className="color-swatch" style={{ background: accentColor }}>
+                <span
+                  className="color-swatch"
+                  style={{ background: accentColor, color: colorCodeInk(accentColor) }}
+                >
                   <span className="color-code">{accentColor.toUpperCase()}</span>
                   <input
                     aria-label="高光颜色"
@@ -1059,9 +1073,20 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <label className="field light-bloom-background">
-                  背景
-                  <input type="color" value={lightBloom.background} onChange={(event) => setLightBloom((value) => ({ ...value, background: event.target.value }))} />
+                <label className="field color-field light-bloom-background">
+                  <span>背景</span>
+                  <span
+                    className="color-swatch"
+                    style={{ background: lightBloom.background, color: colorCodeInk(lightBloom.background) }}
+                  >
+                    <span className="color-code">{lightBloom.background.toUpperCase()}</span>
+                    <input
+                      aria-label="背景"
+                      type="color"
+                      value={lightBloom.background}
+                      onChange={(event) => setLightBloom((value) => ({ ...value, background: event.target.value }))}
+                    />
+                  </span>
                 </label>
                 <Slider label="动画速度" value={speed} min={0} max={100} step={1} display={speed.toFixed(0)} onChange={setSpeed} />
                 <Slider label="悬浮强度" value={lightBloom.hover} min={0} max={200} step={1} display={`${lightBloom.hover}%`} onChange={(hover) => setLightBloom((value) => ({ ...value, hover }))} />
