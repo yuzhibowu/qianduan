@@ -221,15 +221,16 @@ describe("animated USDZ loop boundary", () => {
         tint: "#FAFAFF42",
         grain: 0,
       },
-    }, Array.from({ length: 4 }, () => ({ bytes: png, aspect: 2 })));
+    }, [{ bytes: png, aspect: 8 }]);
     writeFileSync(output, result.bytes);
     expect(result.frames).toBe(90);
     const archive = unzipSync(result.bytes);
     const usda = strFromU8(archive["model.usda"]);
-    expect(usda).toContain('def Xform "Word4"');
+    expect(usda).toContain('def Mesh "TextBand"');
     expect(usda).toContain("endTimeCode = 89");
     expect(usda).not.toMatch(/,90:/);
-    expect(archive["textures/word-4.png"]).toBeTruthy();
+    expect(archive["textures/text-band.png"]).toBeTruthy();
+    expect(usda).not.toContain("Front");
     const check = spawnSync("/usr/bin/usdchecker", [output], { encoding: "utf8" });
     expect(check.status, check.stdout + check.stderr).toBe(0);
   });

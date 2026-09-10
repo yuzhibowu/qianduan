@@ -673,7 +673,7 @@ const rgba = (value: string) => {
 };
 
 const textTexture = async (
-  text: string,
+  labels: string[],
   settings: FrostedTypeBandUsdzSettings["frostedTypeBand"],
 ) => {
   const scale = 4;
@@ -683,26 +683,51 @@ const textTexture = async (
   const font = `${settings.fontStyle} ${settings.fontWeight} ${settings.fontSize * scale}px ${settings.fontFamily}`;
   context.font = font;
   const letterSpacing = settings.letterSpacing * settings.fontSize * scale;
-  const characters = Array.from(text);
-  const measured = characters.reduce(
+  const gap = settings.gap * scale;
+  const widths = labels.map((label) => Array.from(label).reduce(
     (sum, character) => sum + context.measureText(character).width,
-    Math.max(0, characters.length - 1) * letterSpacing,
-  );
-  canvas.width = Math.max(8, Math.ceil(measured + settings.fontSize * scale));
+    Math.max(0, Array.from(label).length - 1) * letterSpacing,
+  ));
+  canvas.width = Math.max(8, Math.ceil(widths.reduce((sum, width) => sum + width, 0) + gap * labels.length));
   canvas.height = Math.max(8, Math.ceil(settings.fontSize * scale * 1.8));
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.font = font;
   context.textBaseline = "middle";
   context.fillStyle = settings.textColor;
-  let x = settings.fontSize * scale * 0.5;
-  for (const character of characters) {
-    context.fillText(character, x, canvas.height / 2);
-    x += context.measureText(character).width + letterSpacing;
+  let x = gap * 0.5;
+  for (const label of labels) {
+    for (const character of Array.from(label)) {
+      context.fillText(character, x, canvas.height / 2);
+      x += context.measureText(character).width + letterSpacing;
+    }
+    x += gap - letterSpacing;
   }
   const blob = await new Promise<Blob>((resolve, reject) =>
     canvas.toBlob((result) => result ? resolve(result) : reject(new Error("文字纹理编码失败")), "image/png"),
   );
   return { bytes: new Uint8Array(await blob.arrayBuffer()), aspect: canvas.width / canvas.height };
+};
+
+const openBandGeometry = (radius: number, height: number, segments = 128) => {
+  const points: number[][] = [], normals: number[][] = [], uvs: number[][] = [];
+  const indices: number[] = [], counts: number[] = [];
+  for (let row = 0; row < 2; row += 1) {
+    const y = row === 0 ? -height / 2 : height / 2;
+    for (let index = 0; index <= segments; index += 1) {
+      const u = index / segments, angle = u * TAU;
+      const x = Math.sin(angle) * radius, z = Math.cos(angle) * radius;
+      points.push([x, y, z]);
+      normals.push([Math.sin(angle), 0, Math.cos(angle)]);
+      uvs.push([u, row]);
+    }
+  }
+  for (let index = 0; index < segments; index += 1) {
+    const bottom = index, nextBottom = index + 1;
+    const top = segments + 1 + index, nextTop = top + 1;
+    indices.push(bottom, nextBottom, nextTop, bottom, nextTop, top);
+    counts.push(3, 3);
+  }
+  return { points, normals, uvs, indices, counts };
 };
 
 export async function buildFrostedTypeBandUsdz(
@@ -714,10 +739,10 @@ export async function buildFrostedTypeBandUsdz(
   if (!labels.length) throw new Error("至少需要一段环形文字");
   const frames = Math.max(1, Math.round((s.duration + s.delay) * s.fps));
   const end = frames - 1;
-  const textures = textureOverride ?? await Promise.all(labels.map((label) => textTexture(label, settings)));
-  if (textures.length !== labels.length) throw new Error("文字纹理数量与文字段数不一致");
-  const radius = Math.max(0.8, settings.distance / 260);
+  const textures = textureOverride ?? [await textTexture(labels, settings)];
+  if (textures.length !== 1) throw new Error("环形文字必须使用一张连续纹理");
   const height = Math.max(0.12, settings.fontSize / 55);
+  const radius = Math.max(height * 1.2, (textures[0].aspect * height) / TAU);
   const speedTurns = Math.max(0, settings.speed) / 100;
   const samples = `{${Array.from({ length: frames }, (_, frame) => {
     const elapsed = Math.max(0, frame / s.fps - s.delay);
@@ -725,57 +750,8 @@ export async function buildFrostedTypeBandUsdz(
     return `${frame}: ${(-360 * speedTurns * progress).toFixed(6)}`;
   }).join(",")}}`;
   const tint = rgba(settings.tint);
-  const bandGeometry = geometry(96);
-  bandGeometry.points.forEach((point) => {
-    point[0] *= radius;
-    point[1] *= height * 2.4;
-    point[2] *= radius;
-  });
-  const words = labels.map((label, index) => {
-    const angle = (index / labels.length) * TAU;
-    const width = Math.max(height, height * textures[index].aspect);
-    const x = Math.sin(angle) * radius;
-    const z = Math.cos(angle) * radius;
-    const rotation = (angle * 180) / Math.PI;
-    const asset = `textures/word-${index + 1}.png`;
-    return `def Xform "Word${index + 1}" {
-      double3 xformOp:translate = (${x.toFixed(6)}, 0, ${z.toFixed(6)})
-      double xformOp:rotateY = ${rotation.toFixed(6)}
-      uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateY"]
-      def Material "TextMaterial" {
-        token outputs:surface.connect = <TextMaterial/Surface.outputs:surface>
-        def Shader "Surface" {
-          uniform token info:id = "UsdPreviewSurface"
-          color3f inputs:diffuseColor.connect = <TextMaterial/Texture.outputs:rgb>
-          float inputs:opacity.connect = <TextMaterial/Texture.outputs:a>
-          float inputs:metallic = 0
-          float inputs:roughness = 0.28
-          token outputs:surface
-        }
-        def Shader "Texture" {
-          uniform token info:id = "UsdUVTexture"
-          asset inputs:file = @${asset}@
-          token inputs:sourceColorSpace = "sRGB"
-          float2 inputs:st.connect = <TextMaterial/Primvar.outputs:result>
-          float3 outputs:rgb
-          float outputs:a
-        }
-        def Shader "Primvar" {
-          uniform token info:id = "UsdPrimvarReader_float2"
-          token inputs:varname = "st"
-          float2 outputs:result
-        }
-      }
-      def Mesh "TextCard" (prepend apiSchemas = ["MaterialBindingAPI"]) {
-        uniform token subdivisionScheme = "none"
-        point3f[] points = [(${(-width / 2).toFixed(6)},${(-height / 2).toFixed(6)},0),(${(width / 2).toFixed(6)},${(-height / 2).toFixed(6)},0),(${(width / 2).toFixed(6)},${(height / 2).toFixed(6)},0),(${(-width / 2).toFixed(6)},${(height / 2).toFixed(6)},0)]
-        int[] faceVertexCounts = [4]
-        int[] faceVertexIndices = [0,1,2,3]
-        texCoord2f[] primvars:st = [(0,0),(1,0),(1,1),(0,1)] (interpolation = "vertex")
-        rel material:binding = <../TextMaterial>
-      }
-    }`;
-  }).join("\n");
+  const bandGeometry = openBandGeometry(radius, height * 1.45);
+  const textGeometry = openBandGeometry(radius * 1.006, height);
   const model = `#usda 1.0
 (
   defaultPrim = "FrostedTypeBand"
@@ -802,24 +778,59 @@ def Xform "FrostedTypeBand" {
       token outputs:surface
     }
   }
+  def Material "TextMaterial" {
+    token outputs:surface.connect = <TextMaterial/Surface.outputs:surface>
+    def Shader "Surface" {
+      uniform token info:id = "UsdPreviewSurface"
+      color3f inputs:diffuseColor.connect = <TextMaterial/Texture.outputs:rgb>
+      float inputs:opacity.connect = <TextMaterial/Texture.outputs:a>
+      float inputs:opacityThreshold = 0.02
+      float inputs:metallic = 0
+      float inputs:roughness = 0.28
+      token outputs:surface
+    }
+    def Shader "Texture" {
+      uniform token info:id = "UsdUVTexture"
+      asset inputs:file = @textures/text-band.png@
+      token inputs:sourceColorSpace = "sRGB"
+      float2 inputs:st.connect = <TextMaterial/Primvar.outputs:result>
+      float3 outputs:rgb
+      float outputs:a
+    }
+    def Shader "Primvar" {
+      uniform token info:id = "UsdPrimvarReader_float2"
+      token inputs:varname = "st"
+      float2 outputs:result
+    }
+  }
   def Xform "Ring" {
     double xformOp:rotateY.timeSamples = ${samples}
     uniform token[] xformOpOrder = ["xformOp:rotateY"]
     def Mesh "GlassBand" (prepend apiSchemas = ["MaterialBindingAPI"]) {
       uniform token subdivisionScheme = "none"
+      uniform bool doubleSided = 1
       point3f[] points = ${tuples(bandGeometry.points)}
       int[] faceVertexCounts = ${list(bandGeometry.counts)}
       int[] faceVertexIndices = ${list(bandGeometry.indices)}
       normal3f[] normals = ${tuples(bandGeometry.normals)} (interpolation = "vertex")
       rel material:binding = </FrostedTypeBand/GlassMaterial>
     }
-    ${words}
+    def Mesh "TextBand" (prepend apiSchemas = ["MaterialBindingAPI"]) {
+      uniform token subdivisionScheme = "none"
+      uniform bool doubleSided = 1
+      point3f[] points = ${tuples(textGeometry.points)}
+      int[] faceVertexCounts = ${list(textGeometry.counts)}
+      int[] faceVertexIndices = ${list(textGeometry.indices)}
+      normal3f[] normals = ${tuples(textGeometry.normals)} (interpolation = "vertex")
+      texCoord2f[] primvars:st = ${tuples(textGeometry.uvs)} (interpolation = "vertex")
+      rel material:binding = </FrostedTypeBand/TextMaterial>
+    }
   }
 }`;
   return {
     bytes: alignedUsdz([
       { name: "model.usda", data: strToU8(model) },
-      ...textures.map((texture, index) => ({ name: `textures/word-${index + 1}.png`, data: texture.bytes })),
+      { name: "textures/text-band.png", data: textures[0].bytes },
     ]),
     frames,
   };
