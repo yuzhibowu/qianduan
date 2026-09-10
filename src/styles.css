@@ -565,6 +565,15 @@ h2 {
   opacity: 0;
   cursor: pointer;
 }
+.paper-image-url-field {
+  margin-top: 0;
+}
+.paper-image-url-field input {
+  height: 32px;
+}
+.paper-image-file-field {
+  margin-top: 14px;
+}
 .local-font-picker {
   position: relative;
   display: grid;
@@ -868,6 +877,11 @@ button:disabled {
   }
   .field input {
     height: 26px;
+  }
+  .paper-image-url-field input,
+  .paper-image-file-button {
+    min-height: 22px;
+    height: 22px;
   }
   .slider-field {
     margin: 8px 0;

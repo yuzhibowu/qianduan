@@ -856,7 +856,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X16</span>
+            <span className="version">260910X17</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -1251,7 +1251,7 @@ export default function App() {
             )}
             {isFrostedTypeBand && (
               <>
-                <label className="field text-effect-field">
+                <label className="field paper-image-url-field">
                   文字（用 | 分隔）
                   <input
                     type="text"
@@ -1336,7 +1336,7 @@ export default function App() {
                   图片地址
                   <input type="text" value={paperImage.image} onChange={(event) => setPaperImage((value) => ({ ...value, image: event.target.value }))} />
                 </label>
-                <div className="field file-field">
+                <div className="field file-field paper-image-file-field">
                   <span>本机图片</span>
                   <label className="opt paper-image-file-button">
                     <span>选择图片</span>
