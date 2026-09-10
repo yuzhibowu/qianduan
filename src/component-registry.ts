@@ -12,6 +12,9 @@ import GyroLoader from "./components/GyroLoader";
 import { ShinyPill, TextRing, Typewriter } from "./components/TextEffects";
 import LightBloom, { type LightBloomSettings } from "./components/LightBloom";
 import type { InteractionSample } from "./interaction";
+import FrostedTypeBandRenderer, {
+  type FrostedTypeBandSettings,
+} from "./components/FrostedTypeBandRenderer";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -40,6 +43,7 @@ export type MotionComponentDefinition = {
       fontFamily?: string;
       interactionTrack?: InteractionSample[];
       lightBloom?: Partial<LightBloomSettings>;
+      frostedTypeBand?: Partial<FrostedTypeBandSettings>;
       appearance?: SurfaceAppearance;
     }
   >;
@@ -139,6 +143,17 @@ export const componentRegistry: MotionComponentDefinition[] = [
     renderer: PulsatingBorder,
     exportCapabilities: ["mov", "apng"],
     triggerMode: "auto",
+  },
+  {
+    id: "frosted-type-band",
+    name: "Frosted Type Band",
+    category: "Interaction",
+    source: "OriginKit",
+    poster:
+      "https://cdn.originkit.dev/components/frosted-type-band-poster.jpg?v=mtcz39rd",
+    renderer: FrostedTypeBandRenderer,
+    exportCapabilities: ["mov", "apng"],
+    triggerMode: "pointer",
   },
   {
     id: "light-bloom",

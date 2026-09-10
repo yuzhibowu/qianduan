@@ -3,6 +3,7 @@ import { toBlobURL } from "@ffmpeg/util";
 import { zipSync } from "fflate";
 import type { InteractionSample } from "./interaction";
 import type { LightBloomSettings } from "./components/LightBloom";
+import type { FrostedTypeBandSettings } from "./components/FrostedTypeBandRenderer";
 
 export type BrowserExportFormat = "mov" | "apng";
 
@@ -33,6 +34,7 @@ export type BrowserExportSettings = {
   fontFamily: string;
   interactionTrack: InteractionSample[];
   lightBloom: LightBloomSettings;
+  frostedTypeBand: FrostedTypeBandSettings;
   pngCompression: boolean;
   keepFrames: boolean;
   material: string;
@@ -177,6 +179,7 @@ async function renderFrames(
     shaftDrift: String(settings.lightBloom.shaftDrift),
     bloomGrain: String(settings.lightBloom.grain),
     bloomVignette: String(settings.lightBloom.vignette),
+    frostedTypeBand: JSON.stringify(settings.frostedTypeBand),
     canvasAspect: String(settings.width / Math.max(1, settings.height)),
     material: settings.material,
     materialEnabled: String(settings.materialEnabled),

@@ -538,6 +538,9 @@ h2 {
 .light-bloom-background {
   margin: 0 0 8px;
 }
+.frosted-type-band-root {
+  overflow: hidden;
+}
 .local-font-picker {
   position: relative;
   display: grid;

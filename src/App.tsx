@@ -15,6 +15,10 @@ import LocalFontPicker from "./components/LocalFontPicker";
 import type { InteractionSample } from "./interaction";
 import { DEFAULT_LIGHT_BLOOM, type LightBloomSettings } from "./components/LightBloom";
 import {
+  DEFAULT_FROSTED_TYPE_BAND,
+  type FrostedTypeBandSettings,
+} from "./components/FrostedTypeBandRenderer";
+import {
   DEFAULT_APPEARANCE,
   MATERIAL_PRESETS,
   materialFromPreset,
@@ -238,6 +242,25 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     innerRadius: 31,
     duration: 10,
   },
+  "frosted-type-band": {
+    baseColor: "#FEFF00",
+    accentColor: "#FAFAFF",
+    speed: 100,
+    ringSpeed: 50,
+    distance: 20,
+    count: 4,
+    coinSize: 100,
+    spread: 100,
+    borderWidth: 5,
+    rounded: 35,
+    glow: 50,
+    borderAspect: 16 / 9,
+    innerRadius: 31,
+    text: "DESIGN|MOTION|SYSTEMS|BRAND",
+    fontSize: 16,
+    fontFamily: "Inter",
+    duration: 19.635,
+  },
 };
 const colorProfileFor = (target: ColorTarget): ColorComp =>
   target === "keynote" ? DEFAULT_COMP : FREEFORM_COMP;
@@ -298,6 +321,16 @@ export default function App() {
     grain: Number(query.get("bloomGrain") ?? DEFAULT_LIGHT_BLOOM.grain),
     vignette: Number(query.get("bloomVignette") ?? DEFAULT_LIGHT_BLOOM.vignette),
   };
+  const queryFrostedTypeBand: FrostedTypeBandSettings = (() => {
+    try {
+      return {
+        ...DEFAULT_FROSTED_TYPE_BAND,
+        ...JSON.parse(query.get("frostedTypeBand") ?? "{}"),
+      };
+    } catch {
+      return DEFAULT_FROSTED_TYPE_BAND;
+    }
+  })();
   const queryMaterial = (query.get("material") ?? "silver") as MaterialPresetId;
   const queryMaterialEnabled = query.get("materialEnabled") === "true";
   const queryFrontTexture = query.get("frontTexture") ?? undefined;
@@ -326,6 +359,8 @@ export default function App() {
   const [recordingInteraction, setRecordingInteraction] = useState(false);
   const [replayingInteraction, setReplayingInteraction] = useState(false);
   const [lightBloom, setLightBloom] = useState<LightBloomSettings>(queryLightBloom);
+  const [frostedTypeBand, setFrostedTypeBand] =
+    useState<FrostedTypeBandSettings>(queryFrostedTypeBand);
   const interactionStartedRef = useRef(0);
   const interactionPressedRef = useRef(false);
   const lastInteractionSampleRef = useRef(-1);
@@ -385,6 +420,7 @@ export default function App() {
   const isDiscSplit = componentId === "disc-split";
   const isGyroLoader = componentId === "gyro-loader";
   const isLightBloom = componentId === "light-bloom";
+  const isFrostedTypeBand = componentId === "frosted-type-band";
   const isTextEffect = ["typewriter", "text-ring", "shiny-pill"].includes(componentId);
   const supportsInteractionRecording =
     componentDefinition.category === "Interaction" || componentId === "light-bloom";
@@ -444,6 +480,7 @@ export default function App() {
           fontFamily={queryFontFamily}
           interactionTrack={queryInteractionTrack}
           lightBloom={queryLightBloom}
+          frostedTypeBand={queryFrostedTypeBand}
           timeSeconds={Number.isFinite(exportFrameTime) ? exportFrameTime : 0}
           loopDuration={queryDuration}
           background={isLightBloom ? queryBackground : "transparent"}
@@ -490,6 +527,7 @@ export default function App() {
       fontFamily,
       interactionTrack,
       lightBloom,
+      frostedTypeBand,
       pngCompression,
       keepFrames: false,
       material: appearance.material.preset,
@@ -524,6 +562,7 @@ export default function App() {
       fontFamily,
       interactionTrack,
       lightBloom,
+      frostedTypeBand,
       pngCompression,
       appearance.material.preset,
       appearance.enabled,
@@ -796,7 +835,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X9</span>
+            <span className="version">260910X10</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -845,6 +884,7 @@ export default function App() {
               fontFamily={fontFamily}
               interactionTrack={replayingInteraction ? interactionTrack : []}
               lightBloom={lightBloom}
+              frostedTypeBand={frostedTypeBand}
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
@@ -955,7 +995,54 @@ export default function App() {
                 </span>
               </label>
             )}
-            <div className="color-row">
+            {isFrostedTypeBand && (
+              <div className="color-row">
+                <label className="field color-field">
+                  <span>文字颜色</span>
+                  <span
+                    className={`color-swatch ${frostedTypeBand.textColor.toUpperCase() === "#FFFFFF" ? "is-white" : ""}`}
+                    style={{
+                      background: frostedTypeBand.textColor,
+                      color: colorCodeInk(frostedTypeBand.textColor),
+                    }}
+                  >
+                    <span className="color-code">{frostedTypeBand.textColor.toUpperCase()}</span>
+                    <input
+                      aria-label="文字颜色"
+                      type="color"
+                      value={frostedTypeBand.textColor}
+                      onChange={(event) =>
+                        setFrostedTypeBand((value) => ({ ...value, textColor: event.target.value }))
+                      }
+                    />
+                  </span>
+                </label>
+                <label className="field color-field">
+                  <span>玻璃染色</span>
+                  <span
+                    className="color-swatch"
+                    style={{
+                      background: frostedTypeBand.tint,
+                      color: colorCodeInk(frostedTypeBand.tint.slice(0, 7)),
+                    }}
+                  >
+                    <span className="color-code">{frostedTypeBand.tint.toUpperCase()}</span>
+                    <input
+                      aria-label="玻璃染色"
+                      type="color"
+                      value={frostedTypeBand.tint.slice(0, 7)}
+                      onChange={(event) =>
+                        setFrostedTypeBand((value) => ({
+                          ...value,
+                          tint: `${event.target.value}${value.tint.slice(7) || "42"}`,
+                        }))
+                      }
+                    />
+                  </span>
+                </label>
+              </div>
+            )}
+            {!isFrostedTypeBand && <div className="color-row">
               <label className="field color-field">
                 <span>主体颜色</span>
                 <span
@@ -998,7 +1085,7 @@ export default function App() {
                   />
                 </span>
               </label>
-            </div>
+            </div>}
             {hasMaterialAppearance && (
               <div className="appearance-panel">
                 <label className="check-row material-toggle">
@@ -1138,6 +1225,87 @@ export default function App() {
                 <h3 className="field-heading">质感</h3>
                 <Slider label="颗粒" value={lightBloom.grain} min={0} max={100} step={1} display={`${lightBloom.grain}%`} onChange={(grain) => setLightBloom((value) => ({ ...value, grain }))} />
                 <Slider label="暗角" value={lightBloom.vignette} min={0} max={100} step={1} display={`${lightBloom.vignette}%`} onChange={(vignette) => setLightBloom((value) => ({ ...value, vignette }))} />
+              </>
+            )}
+            {isFrostedTypeBand && (
+              <>
+                <label className="field text-effect-field">
+                  文字（用 | 分隔）
+                  <input
+                    type="text"
+                    value={frostedTypeBand.items}
+                    onChange={(event) =>
+                      setFrostedTypeBand((value) => ({ ...value, items: event.target.value }))
+                    }
+                  />
+                </label>
+                <Slider
+                  label="字号"
+                  value={frostedTypeBand.fontSize}
+                  min={8}
+                  max={160}
+                  step={1}
+                  display={`${frostedTypeBand.fontSize}px`}
+                  onChange={(fontSize) =>
+                    setFrostedTypeBand((value) => ({ ...value, fontSize }))
+                  }
+                />
+                <LocalFontPicker
+                  value={frostedTypeBand.fontFamily}
+                  onChange={(fontFamily) =>
+                    setFrostedTypeBand((value) => ({ ...value, fontFamily }))
+                  }
+                />
+                <Slider
+                  label="字重"
+                  value={frostedTypeBand.fontWeight}
+                  min={100}
+                  max={900}
+                  step={100}
+                  display={String(frostedTypeBand.fontWeight)}
+                  onChange={(fontWeight) =>
+                    setFrostedTypeBand((value) => ({ ...value, fontWeight }))
+                  }
+                />
+                <div className="opts">
+                  <button
+                    className={`opt ${frostedTypeBand.fontStyle === "normal" ? "active" : ""}`}
+                    onClick={() => setFrostedTypeBand((value) => ({ ...value, fontStyle: "normal" }))}
+                  >
+                    正常
+                  </button>
+                  <button
+                    className={`opt ${frostedTypeBand.fontStyle === "italic" ? "active" : ""}`}
+                    onClick={() => setFrostedTypeBand((value) => ({ ...value, fontStyle: "italic" }))}
+                  >
+                    斜体
+                  </button>
+                </div>
+                <Slider
+                  label="字间距"
+                  value={frostedTypeBand.letterSpacing}
+                  min={-0.1}
+                  max={0.5}
+                  step={0.01}
+                  display={`${frostedTypeBand.letterSpacing.toFixed(2)}em`}
+                  onChange={(letterSpacing) =>
+                    setFrostedTypeBand((value) => ({ ...value, letterSpacing }))
+                  }
+                />
+                <h3 className="field-heading">布局</h3>
+                <Slider label="距离" value={frostedTypeBand.distance} min={100} max={900} step={1} display={`${frostedTypeBand.distance}%`} onChange={(distance) => setFrostedTypeBand((value) => ({ ...value, distance }))} />
+                <Slider label="倾斜" value={frostedTypeBand.tilt} min={0} max={45} step={1} display={`${frostedTypeBand.tilt}°`} onChange={(tilt) => setFrostedTypeBand((value) => ({ ...value, tilt }))} />
+                <Slider label="文字间隔" value={frostedTypeBand.gap} min={0} max={400} step={1} display={`${frostedTypeBand.gap}px`} onChange={(gap) => setFrostedTypeBand((value) => ({ ...value, gap }))} />
+                <Slider label="边缘淡出" value={frostedTypeBand.fade} min={0} max={49} step={1} display={`${frostedTypeBand.fade}%`} onChange={(fade) => setFrostedTypeBand((value) => ({ ...value, fade }))} />
+                <h3 className="field-heading">动画</h3>
+                <Slider label="速度" value={frostedTypeBand.speed} min={0} max={100} step={1} display={String(frostedTypeBand.speed)} onChange={(speed) => setFrostedTypeBand((value) => ({ ...value, speed }))} />
+                <h3 className="field-heading">玻璃</h3>
+                <Slider label="模糊" value={frostedTypeBand.blur} min={0} max={100} step={1} display={`${frostedTypeBand.blur}px`} onChange={(blur) => setFrostedTypeBand((value) => ({ ...value, blur }))} />
+                <Slider label="折射" value={frostedTypeBand.refraction} min={0} max={100} step={1} display={`${frostedTypeBand.refraction}%`} onChange={(refraction) => setFrostedTypeBand((value) => ({ ...value, refraction }))} />
+                <Slider label="颗粒" value={frostedTypeBand.grain} min={0} max={100} step={1} display={`${frostedTypeBand.grain}%`} onChange={(grain) => setFrostedTypeBand((value) => ({ ...value, grain }))} />
+                <h3 className="field-heading">光标</h3>
+                <Slider label="惯性衰减" value={frostedTypeBand.damping} min={1} max={100} step={1} display={`${frostedTypeBand.damping}%`} onChange={(damping) => setFrostedTypeBand((value) => ({ ...value, damping }))} />
+                <Slider label="悬浮减速" value={frostedTypeBand.hover} min={0} max={200} step={1} display={`${frostedTypeBand.hover}%`} onChange={(hover) => setFrostedTypeBand((value) => ({ ...value, hover }))} />
               </>
             )}
             {isDiscSplit && (

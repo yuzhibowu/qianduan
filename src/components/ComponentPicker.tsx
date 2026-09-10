@@ -46,6 +46,11 @@ const PREVIEW_PRESETS: Record<string, Partial<BorderRendererProps>> = {
     accentColor: "#efe6ff",
     speed: 100,
   },
+  "frosted-type-band": {
+    baseColor: "#feff00",
+    accentColor: "#fafaff",
+    speed: 100,
+  },
 };
 
 const PREVIEW_DURATIONS: Record<string, number> = {
@@ -59,6 +64,7 @@ const PREVIEW_DURATIONS: Record<string, number> = {
   "neon-border": 9.474,
   "pulsating-border": 10,
   "light-bloom": 10,
+  "frosted-type-band": 19.635,
 };
 
 function AnimatedPreview({ option }: { option: Option }) {
@@ -106,6 +112,14 @@ function AnimatedPreview({ option }: { option: Option }) {
         fontSize={isTypewriter ? 38 : isTextRing ? 12 : 42}
         fontFamily="PingFang SC"
         previewScale={isText ? 0.62 : 1}
+        frostedTypeBand={
+          option.id === "frosted-type-band"
+            ? {
+                fontSize: 16,
+                items: "DESIGN|MOTION|SYSTEMS|BRAND",
+              }
+            : undefined
+        }
       />
     </div>
   );
