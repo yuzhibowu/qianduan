@@ -78,4 +78,14 @@ describe("motion component registry", () => {
     expect(component.exportCapabilities).toEqual(["mov", "apng"]);
     expect(PAPER_IMAGE_LOOP_DURATION).toBeCloseTo(6.283185, 5);
   });
+
+  it("registers Inspira UI Ripple with web export capabilities", () => {
+    const component = getMotionComponent("inspira-ripple");
+    expect(component.source).toBe("Inspira UI");
+    expect(component.category).toBe("Background");
+    expect(component.triggerMode).toBe("auto");
+    expect(component.exportCapabilities).toEqual(["mov", "apng"]);
+    expect(component.usesOwnCanvasBackground).not.toBe(true);
+    expect(getMotionComponent("light-bloom").usesOwnCanvasBackground).toBe(true);
+  });
 });

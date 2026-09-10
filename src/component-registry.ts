@@ -16,6 +16,7 @@ import FrostedTypeBandRenderer, {
   type FrostedTypeBandSettings,
 } from "./components/FrostedTypeBandRenderer";
 import PaperImageRenderer, { type PaperImageSettings } from "./components/PaperImageRenderer";
+import InspiraRipple, { type InspiraRippleSettings } from "./components/InspiraRipple";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -23,7 +24,7 @@ export type MotionComponentDefinition = {
   id: string;
   name: string;
   category: "3D" | "Text" | "Image" | "Particle" | "Background" | "Interaction";
-  source: "OriginKit";
+  source: "OriginKit" | "Inspira UI";
   poster: string;
   renderer: ComponentType<
     BorderRendererProps & {
@@ -35,6 +36,7 @@ export type MotionComponentDefinition = {
       };
       disc?: {
         count: number;
+        proportions?: number[];
         innerRadius: number;
         thickness: number;
         burst: number;
@@ -46,11 +48,13 @@ export type MotionComponentDefinition = {
       lightBloom?: Partial<LightBloomSettings>;
       frostedTypeBand?: Partial<FrostedTypeBandSettings>;
       paperImage?: Partial<PaperImageSettings>;
+      ripple?: Partial<InspiraRippleSettings>;
       appearance?: SurfaceAppearance;
     }
   >;
   exportCapabilities: ExportCapability[];
   triggerMode: "auto" | "pointer";
+  usesOwnCanvasBackground?: boolean;
 };
 
 export const componentRegistry: MotionComponentDefinition[] = [
@@ -168,6 +172,16 @@ export const componentRegistry: MotionComponentDefinition[] = [
     triggerMode: "pointer",
   },
   {
+    id: "inspira-ripple",
+    name: "Ripple",
+    category: "Background",
+    source: "Inspira UI",
+    poster: "https://inspira-ui.com/og/ripple.png",
+    renderer: InspiraRipple,
+    exportCapabilities: ["mov", "apng"],
+    triggerMode: "auto",
+  },
+  {
     id: "light-bloom",
     name: "Light Bloom",
     category: "Background",
@@ -176,6 +190,7 @@ export const componentRegistry: MotionComponentDefinition[] = [
     renderer: LightBloom,
     exportCapabilities: ["mov", "apng"],
     triggerMode: "pointer",
+    usesOwnCanvasBackground: true,
   },
 ];
 

@@ -326,6 +326,21 @@ h2 {
   font-size: 13px;
   font-weight: 680;
 }
+.slider-reset {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.slider-reset:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 3px;
+}
 .slider-head output {
   color: var(--muted);
   font-size: 12px;
@@ -542,6 +557,33 @@ h2 {
   overflow: hidden;
 }
 .paper-image-root { overflow: hidden; }
+.inspira-ripple-root {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: currentColor;
+}
+.inspira-ripple-masked {
+  background: rgb(255 255 255 / 0.05);
+  -webkit-mask-image: linear-gradient(to bottom, white, transparent);
+  mask-image: linear-gradient(to bottom, white, transparent);
+}
+.inspira-ripple-circle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  box-sizing: border-box;
+  border-width: 1px;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  animation: inspira-ripple-effect 2s ease-in-out infinite;
+  animation-play-state: paused;
+  animation-fill-mode: backwards;
+  transform: translate(-50%, -50%) scale(1);
+}
+@keyframes inspira-ripple-effect {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(0.9); }
+}
 .paper-image-thumbnail-fit {
   position: absolute;
   left: 50%;

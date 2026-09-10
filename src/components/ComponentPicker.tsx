@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { MotionComponentDefinition } from "../component-registry";
 import type { BorderRendererProps } from "./BorderComponents";
 import { DEFAULT_PAPER_IMAGE, PAPER_IMAGE_LOOP_DURATION } from "./PaperImageRenderer";
+import { DEFAULT_INSPIRA_RIPPLE } from "./InspiraRipple";
 
 type Option = MotionComponentDefinition;
 
@@ -125,6 +126,11 @@ function AnimatedPreview({ option }: { option: Option }) {
         paperImage={
           option.id === "paper-image"
             ? DEFAULT_PAPER_IMAGE
+            : undefined
+        }
+        ripple={
+          option.id === "inspira-ripple"
+            ? { ...DEFAULT_INSPIRA_RIPPLE, circleColor: "#FFFFFF" }
             : undefined
         }
       />

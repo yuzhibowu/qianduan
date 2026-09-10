@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import Slider from "./components/Slider";
+import Slider, { SliderResetScope } from "./components/Slider";
 import { DEFAULT_LOOP_DURATION, rotationsPerCycle } from "./time";
 import {
   buildCoinUsdz,
@@ -20,6 +20,7 @@ import {
   type FrostedTypeBandSettings,
 } from "./components/FrostedTypeBandRenderer";
 import { DEFAULT_PAPER_IMAGE, PAPER_IMAGE_LOOP_DURATION, type PaperImageSettings } from "./components/PaperImageRenderer";
+import { DEFAULT_INSPIRA_RIPPLE, type InspiraRippleSettings } from "./components/InspiraRipple";
 import {
   DEFAULT_APPEARANCE,
   MATERIAL_PRESETS,
@@ -268,6 +269,11 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     distance: 20, count: 1, coinSize: 100, spread: 100, borderWidth: 5,
     rounded: 0, glow: 0, borderAspect: 340 / 440, innerRadius: 0, duration: PAPER_IMAGE_LOOP_DURATION,
   },
+  "inspira-ripple": {
+    baseColor: "#000000", accentColor: "#000000", speed: 100, ringSpeed: 50,
+    distance: 20, count: 7, coinSize: 210, spread: 70, borderWidth: 1,
+    rounded: 100, glow: 0, borderAspect: 16 / 9, innerRadius: 0, duration: 2,
+  },
 };
 const colorProfileFor = (target: ColorTarget): ColorComp =>
   target === "keynote" ? DEFAULT_COMP : FREEFORM_COMP;
@@ -290,6 +296,13 @@ export default function App() {
   );
   const queryDistance = Number(query.get("distance") ?? queryDefaults.distance);
   const queryCount = Number(query.get("count") ?? queryDefaults.count);
+  const queryDiscProportions: number[] = (() => {
+    try {
+      const parsed = JSON.parse(query.get("discProportions") ?? "[]") as number[];
+      if (parsed.length === queryCount) return parsed;
+    } catch { /* use equal shares */ }
+    return Array.from({ length: queryCount }, () => 1 / queryCount);
+  })();
   const queryCoinSize = Number(query.get("coinSize") ?? queryDefaults.coinSize);
   const querySpread = Number(query.get("spread") ?? queryDefaults.spread);
   const queryBackground = query.get("background") ?? "transparent";
@@ -345,6 +358,13 @@ export default function App() {
       return DEFAULT_PAPER_IMAGE;
     }
   })();
+  const queryRipple: InspiraRippleSettings = (() => {
+    try {
+      return { ...DEFAULT_INSPIRA_RIPPLE, ...JSON.parse(query.get("ripple") ?? "{}") };
+    } catch {
+      return DEFAULT_INSPIRA_RIPPLE;
+    }
+  })();
   const queryMaterial = (query.get("material") ?? "silver") as MaterialPresetId;
   const queryMaterialEnabled = query.get("materialEnabled") === "true";
   const queryFrontTexture = query.get("frontTexture") ?? undefined;
@@ -359,6 +379,7 @@ export default function App() {
   const [accentColor, setAccentColor] = useState(queryAccentColor);
   const [distance, setDistance] = useState(queryDistance);
   const [count, setCount] = useState(queryCount);
+  const [discProportions, setDiscProportions] = useState<number[]>(queryDiscProportions);
   const [coinSize, setCoinSize] = useState(queryCoinSize);
   const [spread, setSpread] = useState(querySpread);
   const [borderWidth, setBorderWidth] = useState(queryBorderWidth);
@@ -376,6 +397,7 @@ export default function App() {
   const [frostedTypeBand, setFrostedTypeBand] =
     useState<FrostedTypeBandSettings>(queryFrostedTypeBand);
   const [paperImage, setPaperImage] = useState<PaperImageSettings>(queryPaperImage);
+  const [ripple, setRipple] = useState<InspiraRippleSettings>(queryRipple);
   const interactionStartedRef = useRef(0);
   const interactionPressedRef = useRef(false);
   const lastInteractionSampleRef = useRef(-1);
@@ -437,6 +459,7 @@ export default function App() {
   const isLightBloom = componentId === "light-bloom";
   const isFrostedTypeBand = componentId === "frosted-type-band";
   const isPaperImage = componentId === "paper-image";
+  const isInspiraRipple = componentId === "inspira-ripple";
   const isTextEffect = ["typewriter", "text-ring", "shiny-pill"].includes(componentId);
   const supportsInteractionRecording =
     componentDefinition.triggerMode === "pointer";
@@ -487,6 +510,7 @@ export default function App() {
           }}
           disc={{
             count: queryCount,
+            proportions: queryDiscProportions,
             innerRadius: queryInnerRadius,
             thickness: queryCoinSize,
             burst: querySpread,
@@ -498,9 +522,10 @@ export default function App() {
           lightBloom={queryLightBloom}
           frostedTypeBand={queryFrostedTypeBand}
           paperImage={queryPaperImage}
+          ripple={queryRipple}
           timeSeconds={Number.isFinite(exportFrameTime) ? exportFrameTime : 0}
           loopDuration={queryDuration}
-          background={isLightBloom ? queryBackground : "transparent"}
+          background={isLightBloom || isInspiraRipple ? queryBackground : "transparent"}
           borderWidth={queryBorderWidth}
           rounded={queryRounded}
           glow={queryGlow}
@@ -539,6 +564,7 @@ export default function App() {
       glow,
       borderAspect,
       innerRadius,
+      discProportions,
       text,
       fontSize,
       fontFamily,
@@ -546,6 +572,7 @@ export default function App() {
       lightBloom,
       frostedTypeBand,
       paperImage,
+      ripple,
       pngCompression,
       keepFrames: false,
       material: appearance.material.preset,
@@ -575,6 +602,7 @@ export default function App() {
       glow,
       borderAspect,
       innerRadius,
+      discProportions,
       text,
       fontSize,
       fontFamily,
@@ -582,6 +610,7 @@ export default function App() {
       lightBloom,
       frostedTypeBand,
       paperImage,
+      ripple,
       pngCompression,
       appearance.material.preset,
       appearance.enabled,
@@ -643,6 +672,7 @@ export default function App() {
     setRingSpeed(next.ringSpeed);
     setDistance(next.distance);
     setCount(next.count);
+    setDiscProportions(Array.from({ length: next.count }, () => 1 / next.count));
     setCoinSize(next.coinSize);
     setSpread(next.spread);
     setBorderWidth(next.borderWidth);
@@ -893,13 +923,13 @@ export default function App() {
             onPointerLeave={(event) => recordInteraction(event, false, false, true)}
           >
             <MotionRenderer
-              background={isLightBloom ? background : "transparent"}
+              background={isLightBloom || isInspiraRipple ? background : "transparent"}
               baseColor={baseColor}
               accentColor={accentColor}
               speed={speed}
               distance={distance}
               coins={{ count, coinSize, spread, ringSpeed }}
-              disc={{ count, innerRadius, thickness: coinSize, burst: spread }}
+              disc={{ count, proportions: discProportions, innerRadius, thickness: coinSize, burst: spread }}
               text={text}
               fontSize={fontSize}
               fontFamily={fontFamily}
@@ -907,6 +937,7 @@ export default function App() {
               lightBloom={lightBloom}
               frostedTypeBand={frostedTypeBand}
               paperImage={paperImage}
+              ripple={ripple}
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
@@ -961,8 +992,9 @@ export default function App() {
           />
           <strong className="brand">饼饼SHOW</strong>
         </div>
+        <SliderResetScope.Provider value={componentId}>
         <div className="side-body">
-          {componentDefinition.category !== "Background" && (
+          {!componentDefinition.usesOwnCanvasBackground && (
             <section className="global-background-section">
               <h3 className="field-heading color-heading">背景颜色</h3>
               <div className="opts four background-options">
@@ -1000,6 +1032,23 @@ export default function App() {
           )}
           <section>
             {!isPaperImage && <h3 className="field-heading color-heading">颜色</h3>}
+            {isInspiraRipple && (
+              <>
+                <div className="opts">
+                  <button className={`opt ${ripple.circleColor === "currentColor" ? "active" : ""}`} onClick={() => setRipple((value) => ({ ...value, circleColor: "currentColor" }))}>自动主题色</button>
+                  <button className={`opt ${ripple.circleColor !== "currentColor" ? "active" : ""}`} onClick={() => setRipple((value) => ({ ...value, circleColor: theme === "dark" ? "#FFFFFF" : "#000000" }))}>自定颜色</button>
+                </div>
+                {ripple.circleColor !== "currentColor" && (
+                  <label className="field color-field">
+                    <span>圆环颜色</span>
+                    <span className={`color-swatch ${ripple.circleColor.toUpperCase() === "#FFFFFF" ? "is-white" : ""}`} style={{ background: ripple.circleColor, color: colorCodeInk(ripple.circleColor) }}>
+                      <span className="color-code">{ripple.circleColor.toUpperCase()}</span>
+                      <input aria-label="圆环颜色" type="color" value={ripple.circleColor} onChange={(event) => setRipple((value) => ({ ...value, circleColor: event.target.value }))} />
+                    </span>
+                  </label>
+                )}
+              </>
+            )}
             {isLightBloom && (
               <label className="field color-field light-bloom-background">
                 <span>背景颜色</span>
@@ -1064,7 +1113,7 @@ export default function App() {
                 </label>
               </div>
             )}
-            {!isFrostedTypeBand && !isPaperImage && <div className="color-row">
+            {!isFrostedTypeBand && !isPaperImage && !isInspiraRipple && <div className="color-row">
               <label className="field color-field">
                 <span>主体颜色</span>
                 <span
@@ -1249,6 +1298,16 @@ export default function App() {
                 <Slider label="暗角" value={lightBloom.vignette} min={0} max={100} step={1} display={`${lightBloom.vignette}%`} onChange={(vignette) => setLightBloom((value) => ({ ...value, vignette }))} />
               </>
             )}
+            {isInspiraRipple && (
+              <>
+                <Slider label="基础圆环尺寸" value={ripple.baseCircleSize} min={80} max={360} step={1} display={`${ripple.baseCircleSize}px`} onChange={(baseCircleSize) => setRipple((value) => ({ ...value, baseCircleSize }))} />
+                <Slider label="基础圆环不透明度" value={ripple.baseCircleOpacity} min={0.05} max={0.8} step={0.01} display={ripple.baseCircleOpacity.toFixed(2)} onChange={(baseCircleOpacity) => setRipple((value) => ({ ...value, baseCircleOpacity }))} />
+                <Slider label="圆环透明度递减比例" value={ripple.circleOpacityDowngradeRatio} min={0.01} max={0.12} step={0.01} display={ripple.circleOpacityDowngradeRatio.toFixed(2)} onChange={(circleOpacityDowngradeRatio) => setRipple((value) => ({ ...value, circleOpacityDowngradeRatio }))} />
+                <Slider label="波纹速度" value={ripple.waveSpeed} min={10} max={240} step={5} display={`${ripple.waveSpeed}ms`} onChange={(waveSpeed) => setRipple((value) => ({ ...value, waveSpeed }))} />
+                <Slider label="圆环间距" value={ripple.spaceBetweenCircle} min={20} max={140} step={5} display={`${ripple.spaceBetweenCircle}px`} onChange={(spaceBetweenCircle) => setRipple((value) => ({ ...value, spaceBetweenCircle }))} />
+                <Slider label="圆环数量" value={ripple.numberOfCircles} min={2} max={14} step={1} display={String(ripple.numberOfCircles)} onChange={(numberOfCircles) => setRipple((value) => ({ ...value, numberOfCircles }))} />
+              </>
+            )}
             {isFrostedTypeBand && (
               <>
                 <label className="field paper-image-url-field">
@@ -1372,6 +1431,7 @@ export default function App() {
                   max={100}
                   step={1}
                   display={speed.toFixed(0)}
+                  defaultValue={50}
                   onChange={(value) => {
                     setSpeed(value);
                     if (value > 0) setDuration(150 / value);
@@ -1384,8 +1444,30 @@ export default function App() {
                   max={12}
                   step={1}
                   display={String(count)}
-                  onChange={setCount}
+                  defaultValue={6}
+                  onChange={(value) => {
+                    setCount(value);
+                    setDiscProportions(Array.from({ length: value }, () => 1 / value));
+                  }}
                 />
+                <h3 className="field-heading">分块比例</h3>
+                {discProportions.map((part, index) => (
+                  <Slider
+                    key={`disc-part-${index}`}
+                    label={`第${index + 1}部分比例`}
+                    value={part * 100}
+                    min={0}
+                    max={100}
+                    step={1}
+                    display={`${Math.round(part * 100)}%`}
+                    defaultValue={100 / count}
+                    onChange={(value) => {
+                      const next = [...discProportions];
+                      next[index] = value / 100;
+                      setDiscProportions(next);
+                    }}
+                  />
+                ))}
                 <Slider
                   label="中心孔径"
                   value={innerRadius}
@@ -1393,6 +1475,7 @@ export default function App() {
                   max={90}
                   step={1}
                   display={`${innerRadius}%`}
+                  defaultValue={31}
                   onChange={setInnerRadius}
                 />
                 <Slider
@@ -1402,6 +1485,7 @@ export default function App() {
                   max={400}
                   step={1}
                   display={`${coinSize}%`}
+                  defaultValue={90}
                   onChange={setCoinSize}
                 />
                 <Slider
@@ -1411,6 +1495,7 @@ export default function App() {
                   max={300}
                   step={1}
                   display={`${spread}%`}
+                  defaultValue={71}
                   onChange={setSpread}
                 />
                 <Slider
@@ -1420,6 +1505,7 @@ export default function App() {
                   max={20}
                   step={0.1}
                   display={distance.toFixed(1)}
+                  defaultValue={20}
                   onChange={setDistance}
                 />
               </>
@@ -1888,6 +1974,7 @@ export default function App() {
             )}
           </section>
         </div>
+        </SliderResetScope.Provider>
       </aside>
     </main>
   );

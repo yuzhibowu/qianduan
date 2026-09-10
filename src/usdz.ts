@@ -20,6 +20,7 @@ export type CoinUsdzSettings = {
 export type DiscSplitUsdzSettings = CoinUsdzSettings & {
   innerRadius: number;
   accentColor: string;
+  discProportions?: number[];
 };
 export type GyroLoaderUsdzSettings = CoinUsdzSettings & {
   accentColor: string;
@@ -305,7 +306,7 @@ def Xform "CoinLoader" {
 }
 
 function discGeometry(
-  count: number,
+  span: number,
   innerRadius: number,
   thickness: number,
   segments = 32,
@@ -314,7 +315,6 @@ function discGeometry(
     normals: number[][] = [],
     indices: number[] = [],
     counts: number[] = [];
-  const span = TAU / count;
   const vertex = (
     x: number,
     y: number,
@@ -459,7 +459,14 @@ export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
   const thickness = (0.3 * Math.max(10, Math.min(400, s.coinSize))) / 100,
     inner = Math.max(0, Math.min(90, s.innerRadius)) / 100,
     burstDistance = (0.5 * Math.max(0, Math.min(300, s.spread))) / 100;
-  const g = discGeometry(count, inner, thickness);
+  const weights = s.discProportions?.length === count
+    ? s.discProportions.map((value) => Math.max(0, value))
+    : Array.from({ length: count }, () => 1);
+  const spans = s.discProportions?.length === count
+    ? weights.map((value) => TAU * value)
+    : weights.map(() => TAU / count);
+  const customSplit = s.discProportions?.length === count && s.discProportions.some((value) => Math.abs(value - 1 / count) > 0.0001);
+  const starts = spans.map((_, index) => (customSplit ? Math.PI : 0) + spans.slice(0, index).reduce((sum, value) => sum + value, 0));
   const frontAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.frontTexture : undefined, "front"),
     backAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.backTexture : undefined, "back"),
     facesPerBand = 2 * 4,
@@ -481,7 +488,7 @@ export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
             ? easeOut(Math.min(1, wrapped / 1.5))
             : returnStart * (1 - easeOut(Math.min(1, (wrapped - 1) / 1.5))),
         turn = Math.PI * easeOut(Math.min(1, wrapped / 2)),
-        angle = (index / count) * TAU;
+        angle = starts[index];
       let m = mScale(1.6);
       m = mMultiply(m, mTranslation(0, 0, thickness / 2));
       m = mMultiply(m, mRotateX(Math.PI / 2));
@@ -499,7 +506,8 @@ export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
       return `${frame}: ${usdMatrix(m)}`;
     }).join(",")}}`;
   const mesh = (pieceIndex: number) => {
-    const angle = (pieceIndex / count) * TAU,
+    const g = discGeometry(spans[pieceIndex], inner, thickness),
+      angle = starts[pieceIndex],
       uvs = g.points.map(([x, y]) => {
         const rx = x * Math.cos(angle) - y * Math.sin(angle),
           ry = x * Math.sin(angle) + y * Math.cos(angle);

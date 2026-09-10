@@ -14,6 +14,7 @@ export type DiscSplitProps = {
   loopDuration: number;
   disc?: {
     count: number;
+    proportions?: number[];
     innerRadius: number;
     thickness: number;
     burst: number;
@@ -23,7 +24,8 @@ export type DiscSplitProps = {
 };
 
 const TAU = Math.PI * 2;
-const DEFAULT_DISC = { count: 6, innerRadius: 31, thickness: 90, burst: 71 };
+export const DEFAULT_DISC_PROPORTIONS = Array.from({ length: 6 }, () => 1 / 6);
+const DEFAULT_DISC = { count: 6, innerRadius: 31, thickness: 90, burst: 71, proportions: DEFAULT_DISC_PROPORTIONS };
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -158,11 +160,18 @@ function wedgeGeometry(
   innerRadius: number,
   thickness: number,
   segments = 32,
+  proportions?: number[],
 ) {
   const positions: number[] = [],
     normals: number[] = [],
-    indices: number[] = [];
-  const angleSpan = TAU / count;
+    indices: number[] = [],
+    pieceRanges: Array<{ offset: number; count: number }> = [];
+  const normalized = proportions?.length === count
+    ? proportions.map((value) => Math.max(0, value))
+    : Array.from({ length: count }, () => 1);
+  const spans = proportions?.length === count
+    ? normalized.map((value) => TAU * value)
+    : normalized.map(() => TAU / count);
   const vertex = (
     x: number,
     y: number,
@@ -177,7 +186,10 @@ function wedgeGeometry(
   };
   const quad = (a: number, b: number, c: number, d: number) =>
     indices.push(a, b, c, a, c, d);
-  for (let step = 0; step < segments; step += 1) {
+  for (let piece = 0; piece < count; piece += 1) {
+    const angleSpan = spans[piece];
+    const indexOffset = indices.length;
+    for (let step = 0; step < segments; step += 1) {
     const start = (step / segments) * angleSpan,
       end = ((step + 1) / segments) * angleSpan;
     const cs = Math.cos(start),
@@ -208,8 +220,8 @@ function wedgeGeometry(
       vertex(innerRadius * cs, innerRadius * ss, thickness, -cs, -ss, 0),
       vertex(innerRadius * ce, innerRadius * se, thickness, -ce, -se, 0),
     );
-  }
-  const radial = (angle: number, sign: number) => {
+    }
+    const radial = (angle: number, sign: number) => {
     const cosine = Math.cos(angle),
       sine = Math.sin(angle),
       nx = sign * -sine,
@@ -226,13 +238,16 @@ function wedgeGeometry(
       0,
     );
     sign > 0 ? quad(a, b, c, d) : quad(d, c, b, a);
-  };
-  radial(0, 1);
-  radial(angleSpan, -1);
+    };
+    radial(0, 1);
+    radial(angleSpan, -1);
+    pieceRanges.push({ offset: indexOffset, count: indices.length - indexOffset });
+  }
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     indices: new Uint16Array(indices),
+    pieceRanges,
   };
 }
 
@@ -313,7 +328,7 @@ export default function DiscSplit({
     accentColor,
     speed,
     distance,
-    disc: { ...DEFAULT_DISC, ...disc },
+        disc: { ...DEFAULT_DISC, ...disc, proportions: disc?.proportions ?? DEFAULT_DISC_PROPORTIONS },
     timeSeconds,
     appearance,
   });
@@ -322,7 +337,7 @@ export default function DiscSplit({
     accentColor,
     speed,
     distance,
-    disc: { ...DEFAULT_DISC, ...disc },
+        disc: { ...DEFAULT_DISC, ...disc, proportions: disc?.proportions ?? DEFAULT_DISC_PROPORTIONS },
     timeSeconds,
     appearance,
   };
@@ -416,7 +431,7 @@ export default function DiscSplit({
     gl.uniform1f(uHasFront, appearance.enabled && appearance.frontTexture ? 1 : 0);
     gl.uniform1f(uHasBack, appearance.enabled && appearance.backTexture ? 1 : 0);
     let geometryKey = "",
-      indexCount = 0;
+      pieceRanges: Array<{ offset: number; count: number }> = [];
     const resize = () => {
       const dpr =
         document.documentElement.dataset.render === "frame"
@@ -436,10 +451,11 @@ export default function DiscSplit({
         pieceCount = Math.max(2, Math.round(settings.disc.count));
       const thickness = (0.3 * clamp(settings.disc.thickness, 10, 400)) / 100;
       const innerRadius = clamp(settings.disc.innerRadius, 0, 90) / 100;
-      const nextGeometryKey = `${pieceCount}|${innerRadius.toFixed(4)}|${thickness.toFixed(4)}`;
+      const proportions = settings.disc.proportions?.length === pieceCount ? settings.disc.proportions : undefined;
+      const nextGeometryKey = `${pieceCount}|${innerRadius.toFixed(4)}|${thickness.toFixed(4)}|${proportions?.join(",") ?? ""}`;
       if (geometryKey !== nextGeometryKey) {
         geometryKey = nextGeometryKey;
-        const geometry = wedgeGeometry(pieceCount, innerRadius, thickness);
+        const geometry = wedgeGeometry(pieceCount, innerRadius, thickness, 32, proportions);
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, geometry.positions, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
@@ -450,7 +466,7 @@ export default function DiscSplit({
           geometry.indices,
           gl.STATIC_DRAW,
         );
-        indexCount = geometry.indices.length;
+        pieceRanges = geometry.pieceRanges;
       }
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
       gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
@@ -484,8 +500,14 @@ export default function DiscSplit({
             (1 - easeOutQuadratic(Math.min(1, (phase - 1) / 1.5)));
       const turn = Math.PI * easeOutQuadratic(Math.min(1, phase / 2));
       const radialDistance = (0.5 * clamp(settings.disc.burst, 0, 300)) / 100;
+      const equalShare = 1 / pieceCount;
+      const customSplit = proportions && proportions.some((value) => Math.abs(value - equalShare) > 0.0001);
+      const pieceSpans = proportions
+        ? proportions.map((value) => TAU * Math.max(0, value))
+        : Array.from({ length: pieceCount }, () => TAU / pieceCount);
+      let pieceAngle = customSplit ? Math.PI : 0;
       for (let index = 0; index < pieceCount; index += 1) {
-        const angle = (index / pieceCount) * TAU;
+        const angle = pieceAngle;
         let model = scale(1.6);
         model = multiply(model, translation(0, 0, thickness / 2));
         model = multiply(model, rotationX(Math.PI / 2));
@@ -502,7 +524,9 @@ export default function DiscSplit({
         model = multiply(model, rotationX(Math.PI / 2));
         gl.uniformMatrix4fv(uMVP, false, multiply(pv, model));
         gl.uniformMatrix3fv(uNM, false, normalMatrix(model));
-        gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0);
+        const range = pieceRanges[index];
+        gl.drawElements(gl.TRIANGLES, range.count, gl.UNSIGNED_SHORT, range.offset * Uint16Array.BYTES_PER_ELEMENT);
+        pieceAngle += pieceSpans[index];
       }
     };
     const observer = new ResizeObserver(draw);

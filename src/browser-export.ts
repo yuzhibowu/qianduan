@@ -5,6 +5,7 @@ import type { InteractionSample } from "./interaction";
 import type { LightBloomSettings } from "./components/LightBloom";
 import type { FrostedTypeBandSettings } from "./components/FrostedTypeBandRenderer";
 import type { PaperImageSettings } from "./components/PaperImageRenderer";
+import type { InspiraRippleSettings } from "./components/InspiraRipple";
 
 export type BrowserExportFormat = "mov" | "apng";
 
@@ -30,6 +31,7 @@ export type BrowserExportSettings = {
   glow: number;
   borderAspect: number;
   innerRadius: number;
+  discProportions?: number[];
   text: string;
   fontSize: number;
   fontFamily: string;
@@ -37,6 +39,7 @@ export type BrowserExportSettings = {
   lightBloom: LightBloomSettings;
   frostedTypeBand: FrostedTypeBandSettings;
   paperImage: PaperImageSettings;
+  ripple: InspiraRippleSettings;
   pngCompression: boolean;
   keepFrames: boolean;
   material: string;
@@ -152,7 +155,7 @@ async function renderFrames(
     height: String(settings.height),
     duration: String(settings.duration),
     component: settings.componentId,
-    background: "transparent",
+    background: settings.background,
     baseColor: settings.baseColor,
     accentColor: settings.accentColor,
     speed: String(settings.speed),
@@ -166,6 +169,7 @@ async function renderFrames(
     glow: String(settings.glow),
     borderAspect: String(settings.borderAspect),
     innerRadius: String(settings.innerRadius),
+    discProportions: JSON.stringify(settings.discProportions ?? []),
     text: settings.text,
     fontSize: String(settings.fontSize),
     fontFamily: settings.fontFamily,
@@ -183,6 +187,7 @@ async function renderFrames(
     bloomVignette: String(settings.lightBloom.vignette),
     frostedTypeBand: JSON.stringify(settings.frostedTypeBand),
     paperImage: JSON.stringify(settings.paperImage),
+    ripple: JSON.stringify(settings.ripple),
     canvasAspect: String(settings.width / Math.max(1, settings.height)),
     material: settings.material,
     materialEnabled: String(settings.materialEnabled),

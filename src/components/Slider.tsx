@@ -1,4 +1,6 @@
-import type { CSSProperties } from "react";
+import { createContext, useContext, type CSSProperties } from "react";
+
+export const SliderResetScope = createContext("global");
 
 type Props = {
   label: string;
@@ -12,7 +14,10 @@ type Props = {
   snaps?: { value: number; label: string }[];
   snapThreshold?: number;
   className?: string;
+  defaultValue?: number;
 };
+
+const capturedDefaults = new Map<string, number>();
 
 const THUMB = 16;
 
@@ -28,16 +33,32 @@ export default function Slider({
   snaps,
   snapThreshold = 0,
   className = "",
+  defaultValue,
 }: Props) {
+  const resetScope = useContext(SliderResetScope);
+  const resetKey = `${resetScope}:${label}`;
+  if (!capturedDefaults.has(resetKey)) capturedDefaults.set(resetKey, defaultValue ?? value);
+  const resetValue = defaultValue ?? capturedDefaults.get(resetKey) ?? value;
   const progress = max === min ? 0 : (value - min) / (max - min);
   const split = `calc(${progress * 100}% + ${THUMB / 2 - THUMB * progress}px)`;
   const style = { "--split": split } as CSSProperties;
   return (
     <div className={`slider-field ${className}`}>
-      <div className="slider-head">
+      <button
+        type="button"
+        className="slider-head slider-reset"
+        title="恢复默认值"
+        aria-label={`${label}，恢复默认值`}
+        onClick={() => onChange(resetValue)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          onChange(resetValue);
+        }}
+      >
         <span>{label}</span>
         <output>{display ?? value}</output>
-      </div>
+      </button>
       <input
         className="slider"
         aria-label={ariaLabel ?? label}
