@@ -289,12 +289,22 @@ select {
   min-height: 0;
   padding: 0 16px var(--dock-pad);
   overflow-y: auto;
+  scrollbar-color: #000 transparent;
+  scrollbar-width: thin;
+}
+.side-body::-webkit-scrollbar {
+  width: 3px;
+}
+.side-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.side-body::-webkit-scrollbar-thumb {
+  border: 0;
+  border-radius: 999px;
+  background: #000;
 }
 .side-body section {
   padding: 18px 0;
-  border-top: 1px solid var(--line);
-}
-.side-body section:first-child {
   border-top: 0;
 }
 h2 {
@@ -798,8 +808,8 @@ html[data-render="frame"] #root {
   background: transparent !important;
 }
 .canvas-stage {
-  border: 1px solid var(--faint);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--faint) 20%, transparent);
+  border: 0;
+  box-shadow: none;
 }
 .canvas-stage.square {
   width: min(100%, 720px);
