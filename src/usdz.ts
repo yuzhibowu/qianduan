@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from "fflate";
 import { compensateToLinear, srgbToLinear, type ColorComp } from "./lib/color";
 import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "./appearance";
+import { DEFAULT_DISC_CURVE, evaluateDiscCurve, type DiscCurveSettings } from "./disc-curve";
 
 export type CoinUsdzSettings = {
   duration: number;
@@ -21,6 +22,7 @@ export type DiscSplitUsdzSettings = CoinUsdzSettings & {
   innerRadius: number;
   accentColor: string;
   discProportions?: number[];
+  discCurve?: DiscCurveSettings;
 };
 export type GyroLoaderUsdzSettings = CoinUsdzSettings & {
   accentColor: string;
@@ -450,7 +452,6 @@ const usdMatrix = (m: M4) =>
           .join(",")})`,
     )
     .join(",")})`;
-const easeOut = (v: number) => 1 - (1 - v) * (1 - v);
 
 export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
   const frames = Math.max(1, Math.round((s.duration + s.delay) * s.fps)),
@@ -482,12 +483,13 @@ export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
       const t = Math.max(0, frame / s.fps - s.delay),
         phase = s.duration > 0 ? (t / s.duration) * 3 : 0,
         wrapped = ((phase % 3) + 3) % 3,
-        returnStart = easeOut(1 / 1.5),
+        curve = s.discCurve ?? DEFAULT_DISC_CURVE,
+        returnStart = evaluateDiscCurve(1 / 1.5, curve),
         burst =
           wrapped < 1
-            ? easeOut(Math.min(1, wrapped / 1.5))
-            : returnStart * (1 - easeOut(Math.min(1, (wrapped - 1) / 1.5))),
-        turn = Math.PI * easeOut(Math.min(1, wrapped / 2)),
+            ? evaluateDiscCurve(Math.min(1, wrapped / 1.5), curve)
+            : returnStart * (1 - evaluateDiscCurve(Math.min(1, (wrapped - 1) / 1.5), curve)),
+        turn = TAU * evaluateDiscCurve(Math.min(1, wrapped / 2), curve),
         angle = starts[index];
       let m = mScale(1.6);
       m = mMultiply(m, mTranslation(0, 0, thickness / 2));

@@ -1,8 +1,9 @@
 import { PulsingBorder } from "@paper-design/shaders-react";
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { InteractionSample } from "../interaction";
 import type { FrostedTypeBandSettings } from "./FrostedTypeBandRenderer";
 import type { PaperImageSettings } from "./PaperImageRenderer";
+import type { BorderIllustration } from "../border-illustration";
 
 export type BorderRendererProps = {
   baseColor: string;
@@ -15,7 +16,10 @@ export type BorderRendererProps = {
   borderWidth?: number;
   rounded?: number;
   glow?: number;
+  neonLength?: number;
+  neonPosition?: number;
   borderAspect?: number;
+  borderIllustration?: BorderIllustration;
   canvasAspect?: number;
   coins?: {
     count: number;
@@ -81,6 +85,86 @@ const mask: CSSProperties = {
   maskComposite: "exclude",
 };
 
+type DecodedPng = {
+  frames: Array<{ image: CanvasImageSource; duration: number }>;
+  duration: number;
+};
+type ImageDecoderInstance = {
+  tracks: { ready: Promise<void>; selectedTrack?: { frameCount?: number } };
+  decode(options: { frameIndex: number }): Promise<{ image: CanvasImageSource & { duration?: number | null } }>;
+};
+const decodedPngs = new Map<string, Promise<DecodedPng | null>>();
+
+function decodePng(src: string) {
+  const cached = decodedPngs.get(src);
+  if (cached) return cached;
+  const promise = (async () => {
+    const Decoder = (window as Window & { ImageDecoder?: new (options: { data: ArrayBuffer; type: string }) => ImageDecoderInstance }).ImageDecoder;
+    if (!Decoder) return null;
+    const data = await fetch(src).then((response) => response.arrayBuffer());
+    const decoder = new Decoder({ data, type: "image/png" });
+    await decoder.tracks.ready;
+    const count = Math.max(1, decoder.tracks.selectedTrack?.frameCount ?? 1);
+    const frames: DecodedPng["frames"] = [];
+    let duration = 0;
+    for (let frameIndex = 0; frameIndex < count; frameIndex += 1) {
+      const result = await decoder.decode({ frameIndex });
+      const frameDuration = Math.max(1, result.image.duration ?? 100_000);
+      frames.push({ image: result.image, duration: frameDuration });
+      duration += frameDuration;
+    }
+    return { frames, duration };
+  })().catch(() => null);
+  decodedPngs.set(src, promise);
+  return promise;
+}
+
+function Illustration({ value, timeSeconds }: { value?: BorderIllustration; timeSeconds: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [decoded, setDecoded] = useState<DecodedPng | null>(null);
+  useEffect(() => {
+    if (!value) return;
+    let live = true;
+    const ready = decodePng(value.src).then((result) => {
+      if (live) setDecoded(result);
+      return result;
+    });
+    window.__originKitAssetsReady = ready.then(() => undefined);
+    return () => { live = false; };
+  }, [value]);
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !decoded || !value) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    let cursor = ((Math.max(0, timeSeconds) * 1_000_000) % decoded.duration + decoded.duration) % decoded.duration;
+    const frame = decoded.frames.find((candidate) => {
+      if (cursor < candidate.duration) return true;
+      cursor -= candidate.duration;
+      return false;
+    }) ?? decoded.frames[decoded.frames.length - 1];
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(frame.image, 0, 0, canvas.width, canvas.height);
+  }, [decoded, timeSeconds, value]);
+  if (!value) return null;
+  const { bounds, naturalWidth, naturalHeight } = value;
+  const style: CSSProperties = {
+    position: "absolute",
+    zIndex: 0,
+    left: `${(-bounds.x / bounds.width) * 100}%`,
+    top: `${(-bounds.y / bounds.height) * 100}%`,
+    width: `${(naturalWidth / bounds.width) * 100}%`,
+    height: `${(naturalHeight / bounds.height) * 100}%`,
+    maxWidth: "none",
+    pointerEvents: "none",
+  };
+  return decoded ? (
+    <canvas ref={canvasRef} width={naturalWidth} height={naturalHeight} style={style} />
+  ) : (
+    <img src={value.src} alt="" style={style} />
+  );
+}
+
 export function GlowBorder({
   baseColor,
   accentColor,
@@ -92,6 +176,7 @@ export function GlowBorder({
   rounded = 0,
   borderAspect = 16 / 9,
   canvasAspect = 16 / 9,
+  borderIllustration,
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     rotorSize = Math.ceil(Math.hypot(size.width, size.height)) + 24,
@@ -118,6 +203,7 @@ export function GlowBorder({
         ref={frameRef}
         style={panelStyle(distance, background, borderAspect, canvasAspect)}
       >
+        <Illustration value={borderIllustration} timeSeconds={timeSeconds} />
         <div
           style={{
             position: "relative",
@@ -247,8 +333,11 @@ export function NeonBorder({
   borderWidth = 6,
   rounded = 24,
   glow = 100,
+  neonLength = 50,
+  neonPosition = 0,
   borderAspect = 16 / 9,
   canvasAspect = 16 / 9,
+  borderIllustration,
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     safeSpeed = clamp(speed, 0, 20),
@@ -268,15 +357,24 @@ export function NeonBorder({
       { blur: 57, opacity: 0.18, reach: 1 },
     ],
     makeArc = (offset: number) =>
-      neonArc(phase + offset, 50, size.width, size.height, baseColor);
+      neonArc(
+        phase + offset + clamp(neonPosition, -100, 100) / 100,
+        clamp(neonLength, 1, 100),
+        size.width,
+        size.height,
+        baseColor,
+      );
   const edge = (padding: number, inset = 0) => (
     <div
       style={{
         position: "absolute",
-        inset: inset - padding,
+        // The luminous stroke belongs to the frame's inner edge. Blurred glow may
+        // spread outside naturally, but the moving stroke itself must not enlarge
+        // the frame or orbit outside an imported illustration.
+        inset,
         boxSizing: "border-box",
         padding,
-        borderRadius: radius + padding,
+        borderRadius: radius,
         background: "var(--arc)",
         ...mask,
       }}
@@ -341,6 +439,7 @@ export function NeonBorder({
           overflow: "visible",
         }}
       >
+        <Illustration value={borderIllustration} timeSeconds={timeSeconds} />
         {ring(0)}
         {ring(0.5)}
       </div>
@@ -360,6 +459,7 @@ export function PulsatingBorder({
   glow = 50,
   borderAspect = 16 / 9,
   canvasAspect = 16 / 9,
+  borderIllustration,
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     spread = 31,
@@ -373,6 +473,7 @@ export function PulsatingBorder({
         ref={frameRef}
         style={panelStyle(distance, background, borderAspect, canvasAspect)}
       >
+        <Illustration value={borderIllustration} timeSeconds={timeSeconds} />
         {size.width > 0 && size.height > 0 && (
           <PulsingBorder
             colors={[baseColor, accentColor, "#379590"]}
@@ -410,4 +511,10 @@ export function PulsatingBorder({
       </div>
     </div>
   );
+}
+
+declare global {
+  interface Window {
+    __originKitAssetsReady?: Promise<void>;
+  }
 }

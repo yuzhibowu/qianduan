@@ -1,5 +1,6 @@
 import { useEffect, useRef, type CSSProperties } from "react";
 import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "../appearance";
+import { DEFAULT_DISC_CURVE, evaluateDiscCurve, type DiscCurveSettings } from "../disc-curve";
 
 type RGB = [number, number, number];
 type Matrix4 = Float32Array;
@@ -15,6 +16,7 @@ export type DiscSplitProps = {
   disc?: {
     count: number;
     proportions?: number[];
+    curve?: DiscCurveSettings;
     innerRadius: number;
     thickness: number;
     burst: number;
@@ -308,8 +310,6 @@ function compile(gl: WebGLRenderingContext, type: number, source: string) {
   return shader;
 }
 
-const easeOutQuadratic = (value: number) => 1 - (1 - value) ** 2;
-
 export default function DiscSplit({
   background = "transparent",
   baseColor,
@@ -328,7 +328,7 @@ export default function DiscSplit({
     accentColor,
     speed,
     distance,
-        disc: { ...DEFAULT_DISC, ...disc, proportions: disc?.proportions ?? DEFAULT_DISC_PROPORTIONS },
+        disc: { ...DEFAULT_DISC, ...disc, proportions: disc?.proportions ?? DEFAULT_DISC_PROPORTIONS, curve: disc?.curve ?? DEFAULT_DISC_CURVE },
     timeSeconds,
     appearance,
   });
@@ -337,7 +337,7 @@ export default function DiscSplit({
     accentColor,
     speed,
     distance,
-        disc: { ...DEFAULT_DISC, ...disc, proportions: disc?.proportions ?? DEFAULT_DISC_PROPORTIONS },
+        disc: { ...DEFAULT_DISC, ...disc, proportions: disc?.proportions ?? DEFAULT_DISC_PROPORTIONS, curve: disc?.curve ?? DEFAULT_DISC_CURVE },
     timeSeconds,
     appearance,
   };
@@ -492,13 +492,14 @@ export default function DiscSplit({
       const cycleDuration = loopDuration > 0 ? loopDuration : fallbackDuration;
       const phase =
         ((((settings.timeSeconds / cycleDuration) * 3) % 3) + 3) % 3;
-      const returnStart = easeOutQuadratic(1 / 1.5);
+      const curve = settings.disc.curve ?? DEFAULT_DISC_CURVE;
+      const returnStart = evaluateDiscCurve(1 / 1.5, curve);
       const burst =
         phase < 1
-          ? easeOutQuadratic(Math.min(1, phase / 1.5))
+          ? evaluateDiscCurve(Math.min(1, phase / 1.5), curve)
           : returnStart *
-            (1 - easeOutQuadratic(Math.min(1, (phase - 1) / 1.5)));
-      const turn = Math.PI * easeOutQuadratic(Math.min(1, phase / 2));
+            (1 - evaluateDiscCurve(Math.min(1, (phase - 1) / 1.5), curve));
+      const turn = TAU * evaluateDiscCurve(Math.min(1, phase / 2), curve);
       const radialDistance = (0.5 * clamp(settings.disc.burst, 0, 300)) / 100;
       const equalShare = 1 / pieceCount;
       const customSplit = proportions && proportions.some((value) => Math.abs(value - equalShare) > 0.0001);

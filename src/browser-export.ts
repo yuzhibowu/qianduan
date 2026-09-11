@@ -6,6 +6,9 @@ import type { LightBloomSettings } from "./components/LightBloom";
 import type { FrostedTypeBandSettings } from "./components/FrostedTypeBandRenderer";
 import type { PaperImageSettings } from "./components/PaperImageRenderer";
 import type { InspiraRippleSettings } from "./components/InspiraRipple";
+import type { DiscCurveSettings } from "./disc-curve";
+import type { BorderIllustration } from "./border-illustration";
+import { buildFullFrameApng } from "./apng";
 
 export type BrowserExportFormat = "mov" | "apng";
 
@@ -14,6 +17,7 @@ export type BrowserExportSettings = {
   componentName: string;
   width: number;
   height: number;
+  adaptiveCanvas?: boolean;
   fps: number;
   duration: number;
   delay: number;
@@ -29,9 +33,13 @@ export type BrowserExportSettings = {
   borderWidth: number;
   rounded: number;
   glow: number;
+  neonLength: number;
+  neonPosition: number;
   borderAspect: number;
+  borderIllustration?: BorderIllustration;
   innerRadius: number;
   discProportions?: number[];
+  discCurve?: DiscCurveSettings;
   text: string;
   fontSize: number;
   fontFamily: string;
@@ -149,6 +157,11 @@ async function renderFrames(
   report: (progress: BrowserExportProgress) => void,
 ) {
   const totalFrames = validate(settings);
+  const illustrationKey = settings.borderIllustration ? crypto.randomUUID() : undefined;
+  if (illustrationKey) {
+    window.__originKitBorderIllustrations ??= {};
+    window.__originKitBorderIllustrations[illustrationKey] = settings.borderIllustration!;
+  }
   const query = new URLSearchParams({
     render: "frame",
     width: String(settings.width),
@@ -167,9 +180,13 @@ async function renderFrames(
     borderWidth: String(settings.borderWidth),
     rounded: String(settings.rounded),
     glow: String(settings.glow),
+    neonLength: String(settings.neonLength),
+    neonPosition: String(settings.neonPosition),
     borderAspect: String(settings.borderAspect),
+    ...(illustrationKey ? { borderIllustrationKey: illustrationKey } : {}),
     innerRadius: String(settings.innerRadius),
     discProportions: JSON.stringify(settings.discProportions ?? []),
+    discCurve: JSON.stringify(settings.discCurve),
     text: settings.text,
     fontSize: String(settings.fontSize),
     fontFamily: settings.fontFamily,
@@ -219,12 +236,23 @@ async function renderFrames(
       cancelled(signal);
       await new Promise((resolve) => window.setTimeout(resolve, 16));
     }
-    const source = documentInFrame.querySelector(
-      "canvas",
-    ) as HTMLCanvasElement | null;
+    if (child.__originKitAssetsReady) await wait(child.__originKitAssetsReady, signal);
     const stage = documentInFrame.querySelector(
       "[data-testid='export-stage']",
     ) as HTMLElement;
+    const canvasSelector =
+      settings.componentId === "coin-loader"
+        ? "[data-testid='coin-loader-canvas']"
+        : settings.componentId === "disc-split"
+          ? "[data-testid='disc-split-canvas']"
+          : settings.componentId === "gyro-loader"
+            ? "[data-testid='gyro-loader-canvas']"
+            : settings.componentId === "light-bloom"
+              ? "canvas.motion-root"
+              : "";
+    const source = canvasSelector
+      ? documentInFrame.querySelector(canvasSelector) as HTMLCanvasElement | null
+      : null;
     const composed = document.createElement("canvas");
     composed.width = settings.width;
     composed.height = settings.height;
@@ -237,7 +265,7 @@ async function renderFrames(
         child.requestAnimationFrame(() => child.requestAnimationFrame(resolve)),
       );
       context.clearRect(0, 0, composed.width, composed.height);
-      if (settings.background !== "transparent") {
+      if (settings.background !== "transparent" && !settings.adaptiveCanvas) {
         context.fillStyle = settings.background;
         context.fillRect(0, 0, composed.width, composed.height);
       }
@@ -269,6 +297,82 @@ async function renderFrames(
     return frames;
   } finally {
     frame.remove();
+    if (illustrationKey && window.__originKitBorderIllustrations) {
+      delete window.__originKitBorderIllustrations[illustrationKey];
+    }
+  }
+}
+
+type PixelBounds = { left: number; top: number; right: number; bottom: number };
+
+function alphaBounds(data: Uint8ClampedArray, width: number, height: number): PixelBounds | null {
+  let left = width, top = height, right = -1, bottom = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (data[(y * width + x) * 4 + 3] === 0) continue;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+  return right < left ? null : { left, top, right, bottom };
+}
+
+async function cropFramesToVisibleArea(
+  frames: Blob[],
+  width: number,
+  height: number,
+  background: string,
+  signal: AbortSignal,
+) {
+  const decoded: ImageBitmap[] = [];
+  let union: PixelBounds | null = null;
+  try {
+    for (const frame of frames) {
+      cancelled(signal);
+      const bitmap = await createImageBitmap(frame);
+      decoded.push(bitmap);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { willReadFrequently: true })!;
+      context.drawImage(bitmap, 0, 0);
+      const bounds = alphaBounds(context.getImageData(0, 0, width, height).data, width, height);
+      if (bounds) union = union
+        ? {
+            left: Math.min(union.left, bounds.left),
+            top: Math.min(union.top, bounds.top),
+            right: Math.max(union.right, bounds.right),
+            bottom: Math.max(union.bottom, bounds.bottom),
+          }
+        : bounds;
+    }
+    if (!union) return { frames, width, height };
+    // Keep one transparent pixel around the union so glow is never clipped at the file edge.
+    const left = Math.max(0, union.left - 1);
+    const top = Math.max(0, union.top - 1);
+    const right = Math.min(width - 1, union.right + 1);
+    const bottom = Math.min(height - 1, union.bottom + 1);
+    const cropWidth = right - left + 1;
+    const cropHeight = bottom - top + 1;
+    const cropped: Blob[] = [];
+    for (const bitmap of decoded) {
+      cancelled(signal);
+      const canvas = document.createElement("canvas");
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+      const context = canvas.getContext("2d", { alpha: true })!;
+      if (background !== "transparent") {
+        context.fillStyle = background;
+        context.fillRect(0, 0, cropWidth, cropHeight);
+      }
+      context.drawImage(bitmap, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+      cropped.push(await wait(canvasToBlob(canvas), signal));
+    }
+    return { frames: cropped, width: cropWidth, height: cropHeight };
+  } finally {
+    decoded.forEach((bitmap) => bitmap.close());
   }
 }
 
@@ -300,9 +404,19 @@ export async function exportInBrowser(
   const controller = new AbortController();
   activeController = controller;
   const signal = controller.signal;
-  const frames = await renderFrames(settings, signal, report);
   let ffmpeg: FFmpeg | null = null;
   try {
+    let frames = await renderFrames(settings, signal, report);
+    if (settings.adaptiveCanvas) {
+      report({ stage: "Calculating Visible Area", frame: frames.length, totalFrames: frames.length, progress: 73 });
+      frames = (await cropFramesToVisibleArea(
+        frames,
+        settings.width,
+        settings.height,
+        settings.background,
+        signal,
+      )).frames;
+    }
     if (settings.keepFrames) {
       report({ stage: "Packaging PNG Sequence", frame: frames.length, totalFrames: frames.length, progress: 73 });
       const entries: Record<string, Uint8Array> = {};
@@ -310,6 +424,13 @@ export async function exportInBrowser(
         entries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await frames[index].arrayBuffer());
       const archive = zipSync(entries, { level: 0 });
       download(new Blob([archive as BlobPart], { type: "application/zip" }), `OriginKit-${settings.componentName}-${Date.now()}-png-sequence.zip`);
+    }
+    if (format === "apng") {
+      report({ stage: "Encoding Full Frames", frame: frames.length, totalFrames: frames.length, progress: 85 });
+      const bytes = await buildFullFrameApng(frames, settings.fps);
+      const outputName = `OriginKit-${settings.componentName}-${Date.now()}.png`;
+      download(new Blob([bytes as BlobPart], { type: "image/png" }), outputName);
+      return { outputName, frames: frames.length };
     }
     report({
       stage: "Loading Encoder",

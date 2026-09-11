@@ -21,6 +21,14 @@ import {
 } from "./components/FrostedTypeBandRenderer";
 import { DEFAULT_PAPER_IMAGE, PAPER_IMAGE_LOOP_DURATION, type PaperImageSettings } from "./components/PaperImageRenderer";
 import { DEFAULT_INSPIRA_RIPPLE, type InspiraRippleSettings } from "./components/InspiraRipple";
+import { DEFAULT_DISC_CURVE, type DiscCurveSettings } from "./disc-curve";
+import DiscCurveEditor from "./components/DiscCurveEditor";
+import {
+  alphaRoundedPercent,
+  displayIllustrationAspect,
+  visibleAlphaBounds,
+  type BorderIllustration,
+} from "./border-illustration";
 import {
   DEFAULT_APPEARANCE,
   MATERIAL_PRESETS,
@@ -42,6 +50,8 @@ type ComponentControls = {
   borderWidth: number;
   rounded: number;
   glow: number;
+  neonLength?: number;
+  neonPosition?: number;
   borderAspect: number;
   innerRadius: number;
   text?: string;
@@ -73,6 +83,40 @@ function colorCodeInk(hex: string) {
   const green = Number.parseInt(value.slice(2, 4), 16);
   const blue = Number.parseInt(value.slice(4, 6), 16);
   return red * 0.299 + green * 0.587 + blue * 0.114 > 155 ? "#000" : "#fff";
+}
+
+function readDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("无法读取 PNG"));
+    reader.onerror = () => reject(reader.error ?? new Error("无法读取 PNG"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function inspectBorderIllustration(file: File): Promise<BorderIllustration> {
+  if (file.type !== "image/png") throw new Error("只支持 PNG 图片或 PNG 动图");
+  const src = await readDataUrl(file);
+  const image = new Image();
+  image.src = src;
+  await image.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("无法分析 PNG 透明区域");
+  context.drawImage(image, 0, 0);
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const bounds = visibleAlphaBounds(pixels, canvas.width, canvas.height);
+  return {
+    src,
+    name: file.name || "剪贴板 PNG",
+    naturalWidth: canvas.width,
+    naturalHeight: canvas.height,
+    bounds,
+    aspect: bounds.width / Math.max(1, bounds.height),
+    rounded: alphaRoundedPercent(pixels, canvas.width, bounds),
+  };
 }
 
 const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
@@ -209,6 +253,8 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     borderWidth: 6,
     rounded: 24,
     glow: 100,
+    neonLength: 50,
+    neonPosition: 0,
     borderAspect: 16 / 9,
     innerRadius: 31,
     duration: BORDER_DEFAULT_DURATIONS["neon-border"],
@@ -278,6 +324,14 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
 const colorProfileFor = (target: ColorTarget): ColorComp =>
   target === "keynote" ? DEFAULT_COMP : FREEFORM_COMP;
 
+function displayDiscShare(value: number, count: number) {
+  const equalShare = 1 / count;
+  if (Math.abs(value - equalShare) < 0.0001 && !Number.isInteger(100 / count)) {
+    return `1/${count}`;
+  }
+  return `${Number((value * 100).toFixed(2))}%`;
+}
+
 export default function App() {
   const query = new URLSearchParams(window.location.search);
   const exportMode = query.get("render") === "frame";
@@ -303,6 +357,10 @@ export default function App() {
     } catch { /* use equal shares */ }
     return Array.from({ length: queryCount }, () => 1 / queryCount);
   })();
+  const queryDiscCurve: DiscCurveSettings = (() => {
+    try { return { ...DEFAULT_DISC_CURVE, ...JSON.parse(query.get("discCurve") ?? "{}") }; }
+    catch { return DEFAULT_DISC_CURVE; }
+  })();
   const queryCoinSize = Number(query.get("coinSize") ?? queryDefaults.coinSize);
   const querySpread = Number(query.get("spread") ?? queryDefaults.spread);
   const queryBackground = query.get("background") ?? "transparent";
@@ -311,6 +369,8 @@ export default function App() {
   const queryBorderWidth = Number(query.get("borderWidth") ?? 5);
   const queryRounded = Number(query.get("rounded") ?? 35);
   const queryGlow = Number(query.get("glow") ?? 50);
+  const queryNeonLength = Number(query.get("neonLength") ?? queryDefaults.neonLength ?? 50);
+  const queryNeonPosition = Number(query.get("neonPosition") ?? queryDefaults.neonPosition ?? 0);
   const queryBorderAspect = Number(query.get("borderAspect") ?? 16 / 9);
   const queryInnerRadius = Number(
     query.get("innerRadius") ?? queryDefaults.innerRadius,
@@ -369,6 +429,14 @@ export default function App() {
   const queryMaterialEnabled = query.get("materialEnabled") === "true";
   const queryFrontTexture = query.get("frontTexture") ?? undefined;
   const queryBackTexture = query.get("backTexture") ?? undefined;
+  const queryBorderIllustration: BorderIllustration | undefined = (() => {
+    try {
+      const key = query.get("borderIllustrationKey");
+      if (key && window.parent !== window) return window.parent.__originKitBorderIllustrations?.[key];
+      return JSON.parse(query.get("borderIllustration") ?? "null") ?? undefined;
+    }
+    catch { return undefined; }
+  })();
   const [componentId, setComponentId] = useState(queryComponent);
   const [exportFrameTime, setExportFrameTime] = useState(exportTime);
   const [playing, setPlaying] = useState(true);
@@ -380,12 +448,18 @@ export default function App() {
   const [distance, setDistance] = useState(queryDistance);
   const [count, setCount] = useState(queryCount);
   const [discProportions, setDiscProportions] = useState<number[]>(queryDiscProportions);
+  const [discCurve, setDiscCurve] = useState<DiscCurveSettings>(queryDiscCurve);
   const [coinSize, setCoinSize] = useState(queryCoinSize);
   const [spread, setSpread] = useState(querySpread);
   const [borderWidth, setBorderWidth] = useState(queryBorderWidth);
   const [rounded, setRounded] = useState(queryRounded);
   const [glow, setGlow] = useState(queryGlow);
+  const [neonLength, setNeonLength] = useState(queryNeonLength);
+  const [neonPosition, setNeonPosition] = useState(queryNeonPosition);
   const [borderAspect, setBorderAspect] = useState(queryBorderAspect);
+  const [borderIllustrations, setBorderIllustrations] = useState<Record<string, BorderIllustration | undefined>>(
+    queryBorderIllustration ? { [queryComponent]: queryBorderIllustration } : {},
+  );
   const [innerRadius, setInnerRadius] = useState(queryInnerRadius);
   const [text, setText] = useState(queryText);
   const [fontSize, setFontSize] = useState(queryFontSize);
@@ -404,7 +478,7 @@ export default function App() {
   const [width, setWidth] = useState(exportWidth);
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
-  const [aspectRatio, setAspectRatio] = useState<"16:9" | "1:1">("16:9");
+  const [aspectRatio, setAspectRatio] = useState<"16:9" | "1:1" | "adaptive">("16:9");
   const [duration, setDuration] = useState(queryDuration);
   const [delay, setDelay] = useState(0);
   const [background, setBackground] = useState("transparent");
@@ -461,6 +535,7 @@ export default function App() {
   const isPaperImage = componentId === "paper-image";
   const isInspiraRipple = componentId === "inspira-ripple";
   const isTextEffect = ["typewriter", "text-ring", "shiny-pill"].includes(componentId);
+  const borderIllustration = borderIllustrations[componentId];
   const supportsInteractionRecording =
     componentDefinition.triggerMode === "pointer";
   const is3DComponent = ["coin-loader", "disc-split", "gyro-loader"].includes(componentId);
@@ -473,6 +548,35 @@ export default function App() {
       ...current,
       [componentId]: update(current[componentId] ?? DEFAULT_APPEARANCE),
     }));
+
+  useEffect(() => {
+    if (exportMode || !isBorderComponent) return;
+    const paste = (event: ClipboardEvent) => {
+      const item = Array.from(event.clipboardData?.items ?? []).find((candidate) => candidate.type === "image/png");
+      const file = item?.getAsFile();
+      if (!file) return;
+      event.preventDefault();
+      void loadBorderPng(file);
+    };
+    document.addEventListener("paste", paste);
+    return () => document.removeEventListener("paste", paste);
+  }, [componentId, exportMode, isBorderComponent]);
+
+  useEffect(() => {
+    if (exportMode || !isBorderComponent || !borderIllustration) return;
+    let live = true;
+    void fetch(borderIllustration.src)
+      .then((response) => response.blob())
+      .then((blob) => inspectBorderIllustration(new File([blob], borderIllustration.name, { type: "image/png" })))
+      .then((next) => {
+        if (!live) return;
+        setBorderIllustrations((current) => ({ ...current, [componentId]: next }));
+        setBorderAspect(next.aspect);
+        setRounded(next.rounded);
+      })
+      .catch(console.error);
+    return () => { live = false; };
+  }, [borderIllustration?.src, componentId, exportMode, isBorderComponent]);
 
   useEffect(() => {
     if (!exportMode) return;
@@ -511,6 +615,7 @@ export default function App() {
           disc={{
             count: queryCount,
             proportions: queryDiscProportions,
+            curve: queryDiscCurve,
             innerRadius: queryInnerRadius,
             thickness: queryCoinSize,
             burst: querySpread,
@@ -529,7 +634,10 @@ export default function App() {
           borderWidth={queryBorderWidth}
           rounded={queryRounded}
           glow={queryGlow}
+          neonLength={queryNeonLength}
+          neonPosition={queryNeonPosition}
           borderAspect={queryBorderAspect}
+          borderIllustration={queryBorderIllustration}
           canvasAspect={exportWidth / Math.max(1, exportHeight)}
           appearance={appearance}
         />
@@ -547,6 +655,7 @@ export default function App() {
       componentName: componentDefinition.name,
       width,
       height,
+      adaptiveCanvas: aspectRatio === "adaptive",
       fps,
       duration,
       delay,
@@ -562,9 +671,13 @@ export default function App() {
       borderWidth,
       rounded,
       glow,
+      neonLength,
+      neonPosition,
       borderAspect,
+      borderIllustration,
       innerRadius,
       discProportions,
+      discCurve,
       text,
       fontSize,
       fontFamily,
@@ -585,6 +698,7 @@ export default function App() {
       componentDefinition.name,
       width,
       height,
+      aspectRatio,
       fps,
       duration,
       delay,
@@ -600,9 +714,13 @@ export default function App() {
       borderWidth,
       rounded,
       glow,
+      neonLength,
+      neonPosition,
       borderAspect,
+      borderIllustration,
       innerRadius,
       discProportions,
+      discCurve,
       text,
       fontSize,
       fontFamily,
@@ -654,6 +772,8 @@ export default function App() {
       borderWidth,
       rounded,
       glow,
+      neonLength,
+      neonPosition,
       borderAspect,
       innerRadius,
       text,
@@ -673,11 +793,14 @@ export default function App() {
     setDistance(next.distance);
     setCount(next.count);
     setDiscProportions(Array.from({ length: next.count }, () => 1 / next.count));
+    setDiscCurve(DEFAULT_DISC_CURVE);
     setCoinSize(next.coinSize);
     setSpread(next.spread);
     setBorderWidth(next.borderWidth);
     setRounded(next.rounded);
     setGlow(next.glow);
+    setNeonLength(next.neonLength ?? 50);
+    setNeonPosition(next.neonPosition ?? 0);
     setBorderAspect(next.borderAspect);
     setInnerRadius(next.innerRadius);
     setText(next.text ?? "");
@@ -814,13 +937,26 @@ export default function App() {
   }, [playing, loop, duration]);
 
   const boundedRotationRate = Math.min(3, Math.max(0.5, rotationRate));
-  const setRatio = (ratio: "16:9" | "1:1") => {
+  const setRatio = (ratio: "16:9" | "1:1" | "adaptive") => {
     setAspectRatio(ratio);
-    setHeight(ratio === "1:1" ? width : Math.round((width * 9) / 16));
+    setHeight(
+      ratio === "1:1"
+        ? width
+        : ratio === "adaptive"
+          ? height
+          : Math.round((width * 9) / 16),
+    );
   };
   const setResolution = (wide: number, tall: number) => {
-    setWidth(aspectRatio === "1:1" ? tall : wide);
-    setHeight(tall);
+    const nextWidth = aspectRatio === "1:1" ? tall : wide;
+    setWidth(nextWidth);
+    setHeight(
+      aspectRatio === "1:1"
+        ? tall
+        : aspectRatio === "adaptive"
+          ? tall
+          : tall,
+    );
   };
   const chooseMaterial = (preset: MaterialPresetId) =>
     updateAppearance((current) => ({
@@ -838,6 +974,17 @@ export default function App() {
       }));
     reader.readAsDataURL(file);
   };
+  async function loadBorderPng(file?: File) {
+    if (!file || file.type !== "image/png" || !isBorderComponent) return;
+    try {
+      const next = await inspectBorderIllustration(file);
+      setBorderIllustrations((current) => ({ ...current, [componentId]: next }));
+      setBorderAspect(next.aspect);
+      setRounded(next.rounded);
+    } catch (error) {
+      console.error(error);
+    }
+  }
   const startInteractionRecording = () => {
     setReplayingInteraction(false);
     setInteractionTrack([]);
@@ -904,12 +1051,29 @@ export default function App() {
           <div
             className={`canvas-stage ${aspectRatio === "1:1" ? "square" : ""}`}
             style={{
-              aspectRatio: aspectRatio === "1:1" ? "1 / 1" : "16 / 9",
+              aspectRatio:
+                aspectRatio === "1:1"
+                  ? "1 / 1"
+                  : aspectRatio === "adaptive"
+                    ? "16 / 9"
+                    : "16 / 9",
               ...(background === "transparent"
                 ? {}
                 : { background, backgroundImage: "none" }),
             }}
             data-testid="render-stage"
+            onDragOver={(event) => {
+              if (!isBorderComponent || (!event.dataTransfer.types.includes("Files") && !Array.from(event.dataTransfer.items).some((item) => item.type === "image/png"))) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "copy";
+            }}
+            onDrop={(event) => {
+              if (!isBorderComponent) return;
+              const file = Array.from(event.dataTransfer.files).find((candidate) => candidate.type === "image/png");
+              if (!file) return;
+              event.preventDefault();
+              void loadBorderPng(file);
+            }}
             onPointerEnter={(event) => recordInteraction(event, true, false, true)}
             onPointerMove={(event) => recordInteraction(event, true)}
             onPointerDown={(event) => {
@@ -929,7 +1093,7 @@ export default function App() {
               speed={speed}
               distance={distance}
               coins={{ count, coinSize, spread, ringSpeed }}
-              disc={{ count, proportions: discProportions, innerRadius, thickness: coinSize, burst: spread }}
+              disc={{ count, proportions: discProportions, curve: discCurve, innerRadius, thickness: coinSize, burst: spread }}
               text={text}
               fontSize={fontSize}
               fontFamily={fontFamily}
@@ -941,8 +1105,17 @@ export default function App() {
               borderWidth={borderWidth}
               rounded={rounded}
               glow={glow}
+              neonLength={neonLength}
+              neonPosition={neonPosition}
               borderAspect={borderAspect}
-              canvasAspect={aspectRatio === "1:1" ? 1 : 16 / 9}
+              borderIllustration={borderIllustration}
+              canvasAspect={
+                aspectRatio === "1:1"
+                  ? 1
+                  : aspectRatio === "adaptive"
+                    ? 16 / 9
+                    : 16 / 9
+              }
               timeSeconds={previewTime}
               loopDuration={duration}
               appearance={appearance}
@@ -1263,6 +1436,57 @@ export default function App() {
                   display={`${glow}%`}
                   onChange={setGlow}
                 />
+                {componentId === "neon-border" && (
+                  <>
+                    <Slider
+                      label="发光长度"
+                      value={neonLength}
+                      min={1}
+                      max={100}
+                      step={1}
+                      display={`${neonLength}%`}
+                      onChange={setNeonLength}
+                    />
+                    <Slider
+                      label="起始位置"
+                      value={neonPosition}
+                      min={-100}
+                      max={100}
+                      step={1}
+                      display={neonPosition === 0 ? "0" : `${neonPosition > 0 ? "+" : ""}${neonPosition}%`}
+                      onChange={setNeonPosition}
+                    />
+                  </>
+                )}
+                <div className="field-section-divider" aria-hidden="true" />
+                <div className="illustration-fit-block">
+                  <div className="slider-head">
+                    <span>适应插图</span>
+                    <output>{borderIllustration ? displayIllustrationAspect(borderIllustration.aspect) : "—"}</output>
+                  </div>
+                  <div className="illustration-actions">
+                    <label className="opt illustration-add-button">
+                      <span>添加</span>
+                      {borderIllustration && <span className="illustration-added-check" aria-label="已添加">✓</span>}
+                      <input
+                        type="file"
+                        accept="image/png,.png"
+                        onChange={(event) => {
+                          void loadBorderPng(event.target.files?.[0]);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="opt"
+                      disabled={!borderIllustration}
+                      onClick={() => setBorderIllustrations((current) => ({ ...current, [componentId]: undefined }))}
+                    >
+                      去掉
+                    </button>
+                  </div>
+                </div>
               </>
             )}
             {isLightBloom && (
@@ -1437,6 +1661,8 @@ export default function App() {
                     if (value > 0) setDuration(150 / value);
                   }}
                 />
+                <DiscCurveEditor value={discCurve} update={setDiscCurve} />
+                <div className="field-section-divider" aria-hidden="true" />
                 <Slider
                   label="圆盘分块"
                   value={count}
@@ -1450,7 +1676,6 @@ export default function App() {
                     setDiscProportions(Array.from({ length: value }, () => 1 / value));
                   }}
                 />
-                <h3 className="field-heading">分块比例</h3>
                 {discProportions.map((part, index) => (
                   <Slider
                     key={`disc-part-${index}`}
@@ -1459,7 +1684,7 @@ export default function App() {
                     min={0}
                     max={100}
                     step={1}
-                    display={`${Math.round(part * 100)}%`}
+                    display={displayDiscShare(part, count)}
                     defaultValue={100 / count}
                     onChange={(value) => {
                       const next = [...discProportions];
@@ -1468,6 +1693,7 @@ export default function App() {
                     }}
                   />
                 ))}
+                <div className="field-section-divider" aria-hidden="true" />
                 <Slider
                   label="中心孔径"
                   value={innerRadius}
@@ -1718,6 +1944,12 @@ export default function App() {
                 onClick={() => setRatio("1:1")}
               >
                 1:1
+              </button>
+              <button
+                className={`opt ${aspectRatio === "adaptive" ? "active" : ""}`}
+                onClick={() => setRatio("adaptive")}
+              >
+                自适应
               </button>
             </div>
             <div className="opts four">

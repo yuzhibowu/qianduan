@@ -17,6 +17,7 @@ import FrostedTypeBandRenderer, {
 } from "./components/FrostedTypeBandRenderer";
 import PaperImageRenderer, { type PaperImageSettings } from "./components/PaperImageRenderer";
 import InspiraRipple, { type InspiraRippleSettings } from "./components/InspiraRipple";
+import type { DiscCurveSettings } from "./disc-curve";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -37,6 +38,7 @@ export type MotionComponentDefinition = {
       disc?: {
         count: number;
         proportions?: number[];
+        curve?: DiscCurveSettings;
         innerRadius: number;
         thickness: number;
         burst: number;
