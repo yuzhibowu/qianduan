@@ -1,10 +1,12 @@
 import type { BorderRendererProps } from "./BorderComponents";
 import FrostedTypeBand from "./originkit/FrostedTypeBand";
+import { fontFamilyStack } from "../font-catalog";
 
 export type FrostedTypeBandSettings = {
   items: string;
   fontSize: number;
   fontFamily: string;
+  fontFace: string;
   fontWeight: number;
   fontStyle: "normal" | "italic";
   letterSpacing: number;
@@ -26,6 +28,7 @@ export const DEFAULT_FROSTED_TYPE_BAND: FrostedTypeBandSettings = {
   items: "DESIGN|MOTION|SYSTEMS|BRAND",
   fontSize: 16,
   fontFamily: "Inter",
+  fontFace: "",
   fontWeight: 700,
   fontStyle: "normal",
   letterSpacing: 0,
@@ -59,7 +62,7 @@ export default function FrostedTypeBandRenderer({
           .filter(Boolean)
           .map((text) => ({ text }))}
         font={{
-          fontFamily: settings.fontFamily,
+          fontFamily: fontFamilyStack(settings.fontFamily, settings.fontFace),
           fontSize: settings.fontSize,
           fontWeight: settings.fontWeight,
           fontStyle: settings.fontStyle,

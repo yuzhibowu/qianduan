@@ -14,6 +14,7 @@ import type { BorderIllustration } from "../border-illustration";
 import { alphaEdgeMaskPixels } from "../alpha-edge-mask";
 import { angleAtPerimeterPhase, perimeterAngleLut } from "../alpha-perimeter";
 import { neonSegmentDuration } from "../border-timing";
+import type { ShinyGraphic } from "../shiny-graphic";
 
 export type BorderRendererProps = {
   baseColor: string;
@@ -49,6 +50,10 @@ export type BorderRendererProps = {
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  fontFace?: string;
+  fontWeight?: number;
+  shinyGraphic?: ShinyGraphic;
+  shinyGraphicScale?: number;
   interactionTrack?: InteractionSample[];
   previewScale?: number;
   frostedTypeBand?: Partial<FrostedTypeBandSettings>;

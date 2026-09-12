@@ -8,6 +8,7 @@ import type { PaperImageSettings } from "./components/PaperImageRenderer";
 import type { InspiraRippleSettings } from "./components/InspiraRipple";
 import type { DiscCurveSettings } from "./disc-curve";
 import type { BorderIllustration } from "./border-illustration";
+import type { ShinyGraphic } from "./shiny-graphic";
 import { buildFullFrameApng } from "./apng";
 import {
   ADAPTIVE_SAFETY_PADDING,
@@ -49,6 +50,10 @@ export type BrowserExportSettings = {
   text: string;
   fontSize: number;
   fontFamily: string;
+  fontFace: string;
+  fontWeight: number;
+  shinyGraphic?: ShinyGraphic;
+  shinyGraphicScale: number;
   interactionTrack: InteractionSample[];
   lightBloom: LightBloomSettings;
   frostedTypeBand: FrostedTypeBandSettings;
@@ -165,6 +170,7 @@ async function renderFrames(
   const totalFrames = validate(settings);
   const illustrationKey = settings.borderIllustration ? crypto.randomUUID() : undefined;
   const overlayIllustrationsKey = settings.borderOverlayIllustrations?.length ? crypto.randomUUID() : undefined;
+  const shinyGraphicKey = settings.shinyGraphic ? crypto.randomUUID() : undefined;
   if (illustrationKey) {
     window.__originKitBorderIllustrations ??= {};
     window.__originKitBorderIllustrations[illustrationKey] = settings.borderIllustration!;
@@ -172,6 +178,10 @@ async function renderFrames(
   if (overlayIllustrationsKey) {
     window.__originKitBorderOverlayIllustrations ??= {};
     window.__originKitBorderOverlayIllustrations[overlayIllustrationsKey] = settings.borderOverlayIllustrations!;
+  }
+  if (shinyGraphicKey) {
+    window.__originKitShinyGraphics ??= {};
+    window.__originKitShinyGraphics[shinyGraphicKey] = settings.shinyGraphic!;
   }
   const query = new URLSearchParams({
     render: "frame",
@@ -202,6 +212,10 @@ async function renderFrames(
     text: settings.text,
     fontSize: String(settings.fontSize),
     fontFamily: settings.fontFamily,
+    fontFace: settings.fontFace,
+    fontWeight: String(settings.fontWeight),
+    ...(shinyGraphicKey ? { shinyGraphicKey } : {}),
+    shinyGraphicScale: String(settings.shinyGraphicScale),
     interaction: JSON.stringify(settings.interactionTrack),
     bloomStyle: settings.lightBloom.variant,
     bloomDirection: settings.lightBloom.direction,
@@ -314,6 +328,9 @@ async function renderFrames(
     }
     if (overlayIllustrationsKey && window.__originKitBorderOverlayIllustrations) {
       delete window.__originKitBorderOverlayIllustrations[overlayIllustrationsKey];
+    }
+    if (shinyGraphicKey && window.__originKitShinyGraphics) {
+      delete window.__originKitShinyGraphics[shinyGraphicKey];
     }
   }
 }

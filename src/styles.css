@@ -385,6 +385,12 @@ h2 {
   opacity: 0;
   cursor: pointer;
 }
+.field-error {
+  margin: 7px 0 0;
+  color: #c83c36;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .slider {
   width: 100%;
   height: 20px;
@@ -455,6 +461,9 @@ h2 {
   grid-template-columns: 1fr 1fr;
   gap: 7px;
   margin-top: 8px;
+}
+.color-row.single {
+  grid-template-columns: 1fr;
 }
 .field {
   display: grid;
@@ -602,6 +611,15 @@ h2 {
 .text-effect-field {
   margin-top: 20px;
 }
+.shiny-content-source {
+  margin-top: 20px;
+}
+.shiny-content-source .opts {
+  margin-top: 0;
+}
+.shiny-content-source + .illustration-fit-block {
+  margin-top: 20px;
+}
 .light-bloom-background {
   margin: 0 0 8px;
 }
@@ -669,13 +687,27 @@ h2 {
   margin-top: 14px;
 }
 .local-font-picker {
-  position: relative;
   display: grid;
-  gap: 7px;
+  gap: 16px;
   margin-top: 16px;
   color: var(--label);
   font-size: 12px;
   font-weight: 680;
+}
+.local-font-control {
+  position: relative;
+  display: grid;
+  gap: 7px;
+}
+.local-font-reset {
+  width: max-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .local-font-trigger {
   display: flex;
@@ -745,8 +777,20 @@ h2 {
   font-size: 12px;
 }
 .local-font-list button:hover,
-.local-font-list button.selected {
+.local-font-list button.selected,
+.local-font-face-option:hover,
+.local-font-face-option.selected {
   color: #fff;
+}
+.local-font-face-option {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: #000;
+  color: #aaa;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
 }
 .btn,
 .opt,
@@ -1226,6 +1270,29 @@ html[data-render="frame"] #root {
   position: absolute;
   inset: 0;
   overflow: hidden;
+}
+.shiny-graphic-frame {
+  position: relative;
+  flex: none;
+  max-width: 95%;
+  max-height: 95%;
+  overflow: hidden;
+}
+.shiny-graphic-source,
+.shiny-graphic-sweep-mask {
+  display: block;
+  max-width: none;
+  max-height: none;
+}
+.shiny-graphic-sweep-mask,
+.shiny-graphic-sweep {
+  pointer-events: none;
+}
+.shiny-graphic-sweep {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
 }
 .masked-border,
 .neon-glow {

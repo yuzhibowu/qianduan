@@ -18,6 +18,7 @@ import FrostedTypeBandRenderer, {
 import PaperImageRenderer, { type PaperImageSettings } from "./components/PaperImageRenderer";
 import InspiraRipple, { type InspiraRippleSettings } from "./components/InspiraRipple";
 import type { DiscCurveSettings } from "./disc-curve";
+import type { ShinyGraphic } from "./shiny-graphic";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -46,6 +47,10 @@ export type MotionComponentDefinition = {
       text?: string;
       fontSize?: number;
       fontFamily?: string;
+      fontFace?: string;
+      fontWeight?: number;
+      shinyGraphic?: ShinyGraphic;
+      shinyGraphicScale?: number;
       interactionTrack?: InteractionSample[];
       lightBloom?: Partial<LightBloomSettings>;
       frostedTypeBand?: Partial<FrostedTypeBandSettings>;

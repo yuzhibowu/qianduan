@@ -2,6 +2,7 @@ import { strToU8, zipSync } from "fflate";
 import { compensateToLinear, srgbToLinear, type ColorComp } from "./lib/color";
 import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "./appearance";
 import { DEFAULT_DISC_CURVE, evaluateDiscCurve, type DiscCurveSettings } from "./disc-curve";
+import { fontFamilyStack } from "./font-catalog";
 
 export type CoinUsdzSettings = {
   duration: number;
@@ -32,6 +33,7 @@ export type FrostedTypeBandUsdzSettings = CoinUsdzSettings & {
     items: string;
     fontSize: number;
     fontFamily: string;
+    fontFace?: string;
     fontWeight: number;
     fontStyle: "normal" | "italic";
     letterSpacing: number;
@@ -690,7 +692,7 @@ const textTexture = async (
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
   if (!context) throw new Error("浏览器无法创建文字纹理画布");
-  const font = `${settings.fontStyle} ${settings.fontWeight} ${settings.fontSize * scale}px ${settings.fontFamily}`;
+  const font = `${settings.fontStyle} ${settings.fontWeight} ${settings.fontSize * scale}px ${fontFamilyStack(settings.fontFamily, settings.fontFace)}`;
   context.font = font;
   const letterSpacing = settings.letterSpacing * settings.fontSize * scale;
   const gap = settings.gap * scale;

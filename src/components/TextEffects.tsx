@@ -1,5 +1,7 @@
-import { useMemo, type CSSProperties } from "react";
+import { useEffect, useMemo, type CSSProperties } from "react";
 import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "../appearance";
+import { fontFamilyStack } from "../font-catalog";
+import { shinyGraphicLayout, type ShinyGraphic } from "../shiny-graphic";
 
 type TextEffectProps = {
   baseColor: string;
@@ -11,6 +13,10 @@ type TextEffectProps = {
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  fontFace?: string;
+  fontWeight?: number;
+  shinyGraphic?: ShinyGraphic;
+  shinyGraphicScale?: number;
   appearance?: SurfaceAppearance;
   previewScale?: number;
 };
@@ -63,19 +69,83 @@ export function ShinyPill({
   text = "SHINY PILL",
   fontSize = 120,
   fontFamily = "Inter",
+  fontFace = "",
+  fontWeight = 700,
+  shinyGraphic,
+  shinyGraphicScale = 100,
   appearance = DEFAULT_APPEARANCE,
   previewScale = 1,
 }: TextEffectProps) {
+  useEffect(() => {
+    if (!shinyGraphic) return;
+    const image = new Image();
+    image.src = shinyGraphic.src;
+    const ready = image.decode().catch(() => undefined);
+    const previous = window.__originKitAssetsReady ?? Promise.resolve();
+    window.__originKitAssetsReady = Promise.all([previous, ready]).then(() => undefined);
+  }, [shinyGraphic]);
   const phase =
     loopDuration > 0 ? (timeSeconds % loopDuration) / loopDuration : 0;
   const eased = phase < 0.5 ? 2 * phase * phase : 1 - (-2 * phase + 2) ** 2 / 2;
   const maskPosition = `${200 - eased * 300}%`;
+  if (shinyGraphic) {
+    const sourceLayout = shinyGraphicLayout(shinyGraphic);
+    const frameSpan = Math.max(10, Math.min(95, 72 * shinyGraphicScale / 100));
+    const frameStyle: CSSProperties = shinyGraphic.aspect >= 1
+      ? { width: `${frameSpan}%`, aspectRatio: String(shinyGraphic.aspect) }
+      : { height: `${frameSpan}%`, aspectRatio: String(shinyGraphic.aspect) };
+    const sharedSourceStyle: CSSProperties = {
+      position: "absolute",
+      ...sourceLayout,
+    };
+    return (
+      <div className="motion-root" style={centered(background)}>
+        <div className="shiny-graphic-frame" style={frameStyle}>
+          <img
+            className="shiny-graphic-source"
+            src={shinyGraphic.src}
+            alt=""
+            draggable={false}
+            style={sharedSourceStyle}
+          />
+          <span
+            aria-hidden="true"
+            className="shiny-graphic-sweep-mask"
+            style={{
+              ...sharedSourceStyle,
+              WebkitMaskImage: `url("${shinyGraphic.src}")`,
+              maskImage: `url("${shinyGraphic.src}")`,
+              WebkitMaskSize: "100% 100%",
+              maskSize: "100% 100%",
+              WebkitMaskRepeat: "no-repeat",
+              maskRepeat: "no-repeat",
+            }}
+          >
+            <span
+              className="shiny-graphic-sweep"
+              style={{
+                backgroundColor: accentColor,
+                WebkitMaskImage: "linear-gradient(to right, transparent 30%, #000 50%, transparent 70%)",
+                maskImage: "linear-gradient(to right, transparent 30%, #000 50%, transparent 70%)",
+                WebkitMaskSize: "150% 100%",
+                maskSize: "150% 100%",
+                WebkitMaskPosition: `${maskPosition} 0`,
+                maskPosition: `${maskPosition} 0`,
+                WebkitMaskRepeat: "no-repeat",
+                maskRepeat: "no-repeat",
+              }}
+            />
+          </span>
+        </div>
+      </div>
+    );
+  }
   const textStyle: CSSProperties = {
-    fontFamily: `'${fontFamily}', ui-sans-serif, system-ui, sans-serif`,
+    fontFamily: fontFamilyStack(fontFamily, fontFace),
     fontSize: previewScale < 1
       ? `${fontSize * previewScale}px`
       : `clamp(28px, ${fontSize / 12}vw, ${fontSize}px)`,
-    fontWeight: 700,
+    fontWeight,
     letterSpacing: "-0.01em",
     lineHeight: 1,
     whiteSpace: "nowrap",
@@ -118,6 +188,8 @@ export function Typewriter({
   text = "Interfaces|Experiences|Interactions|Products",
   fontSize = 80,
   fontFamily = "Inter",
+  fontFace = "",
+  fontWeight = 400,
   appearance = DEFAULT_APPEARANCE,
   previewScale = 1,
 }: TextEffectProps) {
@@ -155,7 +227,8 @@ export function Typewriter({
       <div
         style={{
           color: baseColor,
-          fontFamily: `'${fontFamily}', ui-sans-serif, system-ui, sans-serif`,
+          fontFamily: fontFamilyStack(fontFamily, fontFace),
+          fontWeight,
           fontSize: previewScale < 1
             ? `${fontSize * previewScale}px`
             : `clamp(28px, ${fontSize / 12}vw, ${fontSize}px)`,
@@ -192,6 +265,8 @@ export function TextRing({
   text = "CIRCULAR|TEXT",
   fontSize = 24,
   fontFamily = "Inter",
+  fontFace = "",
+  fontWeight = 900,
   appearance = DEFAULT_APPEARANCE,
   previewScale = 1,
 }: TextEffectProps) {
@@ -202,7 +277,7 @@ export function TextRing({
   const layout = useMemo(() => {
     const circumference = Math.PI * Math.max(8, diameter - renderedFontSize * 1.1);
     const context = document.createElement("canvas").getContext("2d");
-    if (context) context.font = `900 ${renderedFontSize}px '${fontFamily}', sans-serif`;
+    if (context) context.font = `${fontWeight} ${renderedFontSize}px ${fontFamilyStack(fontFamily, fontFace)}`;
     const unit = Array.from(phrase);
     const unitWidth = unit.reduce(
       (sum, character) => sum + (context?.measureText(character).width ?? renderedFontSize * 0.55),
@@ -221,7 +296,7 @@ export function TextRing({
       offset += widths[index] + spacing;
       return { character, angle };
     });
-  }, [diameter, fontFamily, renderedFontSize, phrase]);
+  }, [diameter, fontFace, fontFamily, fontWeight, renderedFontSize, phrase]);
   const rotation = ((timeSeconds / Math.max(0.001, loopDuration)) * 360) % 360;
   return (
     <div className="motion-root" style={centered(background)}>
@@ -246,9 +321,9 @@ export function TextRing({
                 position: "absolute",
                 left: "50%",
                 top: 0,
-                fontFamily: `'${fontFamily}', ui-sans-serif, system-ui, sans-serif`,
+                fontFamily: fontFamilyStack(fontFamily, fontFace),
                 fontSize: renderedFontSize,
-                fontWeight: 900,
+                fontWeight,
                 lineHeight: 1,
                 whiteSpace: "pre",
                 transform: "translate(-50%, -50%)",

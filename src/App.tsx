@@ -43,8 +43,14 @@ import {
 } from "./appearance";
 import { adaptNeonToAspect } from "./neon-adaptation";
 import { borderLoopDuration, neonLoopDuration } from "./border-timing";
+import {
+  inspectShinyGraphic,
+  shinyGraphicKind,
+  type ShinyGraphic,
+} from "./shiny-graphic";
 
 type ColorTarget = "keynote" | "freeform";
+type ShinyContentMode = "text" | "graphic";
 type ExportJob = BrowserExportProgress & {
   running: boolean;
   outputPath: string;
@@ -82,6 +88,8 @@ type ComponentControls = {
   text?: string;
   fontSize?: number;
   fontFamily?: string;
+  fontFace?: string;
+  fontWeight?: number;
   duration: number;
 };
 
@@ -210,6 +218,8 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     text: "Interfaces|Experiences|Interactions|Products",
     fontSize: 80,
     fontFamily: "PingFang SC",
+    fontFace: "",
+    fontWeight: 400,
     duration: 12,
   },
   "text-ring": {
@@ -229,6 +239,8 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     text: "CIRCULAR|TEXT",
     fontSize: 24,
     fontFamily: "PingFang SC",
+    fontFace: "",
+    fontWeight: 900,
     duration: 20,
   },
   "shiny-pill": {
@@ -248,6 +260,8 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     text: "SHINY PILL",
     fontSize: 120,
     fontFamily: "PingFang SC",
+    fontFace: "",
+    fontWeight: 700,
     duration: 1.5,
   },
   "glow-border": {
@@ -333,6 +347,8 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     text: "DESIGN|MOTION|SYSTEMS|BRAND",
     fontSize: 16,
     fontFamily: "Inter",
+    fontFace: "",
+    fontWeight: 700,
     duration: 19.635,
   },
   "paper-image": {
@@ -406,6 +422,10 @@ export default function App() {
   );
   const queryFontFamily =
     query.get("fontFamily") ?? queryDefaults.fontFamily ?? "PingFang SC";
+  const queryFontFace = query.get("fontFace") ?? queryDefaults.fontFace ?? "";
+  const queryFontWeight = Number(
+    query.get("fontWeight") ?? queryDefaults.fontWeight ?? 400,
+  );
   const queryInteractionTrack = (() => {
     try {
       return JSON.parse(query.get("interaction") ?? "[]") as InteractionSample[];
@@ -471,6 +491,17 @@ export default function App() {
     }
     catch { return []; }
   })();
+  const queryShinyGraphic: ShinyGraphic | undefined = (() => {
+    try {
+      const key = query.get("shinyGraphicKey");
+      if (key && window.parent !== window)
+        return window.parent.__originKitShinyGraphics?.[key];
+      return JSON.parse(query.get("shinyGraphic") ?? "null") ?? undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  const queryShinyGraphicScale = Number(query.get("shinyGraphicScale") ?? 100);
   const [componentId, setComponentId] = useState(queryComponent);
   const [exportFrameTime, setExportFrameTime] = useState(exportTime);
   const [playing, setPlaying] = useState(true);
@@ -502,6 +533,12 @@ export default function App() {
   const [text, setText] = useState(queryText);
   const [fontSize, setFontSize] = useState(queryFontSize);
   const [fontFamily, setFontFamily] = useState(queryFontFamily);
+  const [fontFace, setFontFace] = useState(queryFontFace);
+  const [fontWeight, setFontWeight] = useState(queryFontWeight);
+  const [shinyGraphic, setShinyGraphic] = useState<ShinyGraphic | undefined>(queryShinyGraphic);
+  const [shinyContentMode, setShinyContentMode] = useState<ShinyContentMode>(queryShinyGraphic ? "graphic" : "text");
+  const [shinyGraphicScale, setShinyGraphicScale] = useState(queryShinyGraphicScale);
+  const [shinyGraphicError, setShinyGraphicError] = useState("");
   const [interactionTrack, setInteractionTrack] = useState<InteractionSample[]>(queryInteractionTrack);
   const [recordingInteraction, setRecordingInteraction] = useState(false);
   const [replayingInteraction, setReplayingInteraction] = useState(false);
@@ -513,6 +550,7 @@ export default function App() {
   const interactionStartedRef = useRef(0);
   const interactionPressedRef = useRef(false);
   const lastInteractionSampleRef = useRef(-1);
+  const shinyTextBeforeGraphicRef = useRef(queryText || COMPONENT_DEFAULTS["shiny-pill"].text || "SHINY PILL");
   const [width, setWidth] = useState(exportWidth);
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
@@ -566,7 +604,11 @@ export default function App() {
   const isFrostedTypeBand = componentId === "frosted-type-band";
   const isPaperImage = componentId === "paper-image";
   const isInspiraRipple = componentId === "inspira-ripple";
+  const isShinyPill = componentId === "shiny-pill";
   const isTextEffect = ["typewriter", "text-ring", "shiny-pill"].includes(componentId);
+  const isShinyGraphicMode = isShinyPill && shinyContentMode === "graphic";
+  const hasShinyGraphic = isShinyGraphicMode && Boolean(shinyGraphic);
+  const activeShinyGraphic = isShinyGraphicMode ? shinyGraphic : undefined;
   const borderIllustration = borderIllustrations[componentId];
   const borderPngLayers = borderOverlayIllustrations[componentId] ?? [];
   const selectedBorderOverlayIndex = selectedBorderOverlayIndices[componentId];
@@ -597,6 +639,26 @@ export default function App() {
     document.addEventListener("paste", paste);
     return () => document.removeEventListener("paste", paste);
   }, [borderIllustration, componentId, exportMode, isBorderComponent]);
+
+  useEffect(() => {
+    if (exportMode || !isShinyPill) return;
+    const paste = (event: ClipboardEvent) => {
+      const item = Array.from(event.clipboardData?.items ?? []).find((candidate) =>
+        candidate.type === "image/png" || candidate.type === "image/svg+xml",
+      );
+      let file = item?.getAsFile() ?? undefined;
+      if (!file) {
+        const svgText = event.clipboardData?.getData("image/svg+xml") || event.clipboardData?.getData("text/plain") || "";
+        if (/^\s*<svg[\s>]/i.test(svgText))
+          file = new File([svgText], "剪贴板.svg", { type: "image/svg+xml" });
+      }
+      if (!file) return;
+      event.preventDefault();
+      void loadShinyGraphic(file);
+    };
+    document.addEventListener("paste", paste);
+    return () => document.removeEventListener("paste", paste);
+  }, [exportMode, isShinyPill, shinyContentMode, shinyGraphic, text]);
 
   useEffect(() => {
     if (exportMode || !isBorderComponent || !borderIllustration) return;
@@ -664,6 +726,10 @@ export default function App() {
           text={queryText}
           fontSize={queryFontSize}
           fontFamily={queryFontFamily}
+          fontFace={queryFontFace}
+          fontWeight={queryFontWeight}
+          shinyGraphic={queryShinyGraphic}
+          shinyGraphicScale={queryShinyGraphicScale}
           interactionTrack={queryInteractionTrack}
           lightBloom={queryLightBloom}
           frostedTypeBand={queryFrostedTypeBand}
@@ -724,6 +790,10 @@ export default function App() {
       text,
       fontSize,
       fontFamily,
+      fontFace,
+      fontWeight,
+      shinyGraphic: activeShinyGraphic,
+      shinyGraphicScale,
       interactionTrack,
       lightBloom,
       frostedTypeBand,
@@ -768,6 +838,10 @@ export default function App() {
       text,
       fontSize,
       fontFamily,
+      fontFace,
+      fontWeight,
+      activeShinyGraphic,
+      shinyGraphicScale,
       interactionTrack,
       lightBloom,
       frostedTypeBand,
@@ -823,6 +897,8 @@ export default function App() {
       text,
       fontSize,
       fontFamily,
+      fontFace,
+      fontWeight,
       duration,
     };
     const next =
@@ -850,6 +926,8 @@ export default function App() {
     setText(next.text ?? "");
     setFontSize(next.fontSize ?? 80);
     setFontFamily(next.fontFamily ?? "PingFang SC");
+    setFontFace(next.fontFace ?? "");
+    setFontWeight(next.fontWeight ?? 400);
     setInteractionTrack([]);
     setReplayingInteraction(false);
     setDuration(next.duration);
@@ -1057,6 +1135,38 @@ export default function App() {
       console.error(error);
     }
   }
+  async function loadShinyGraphic(file?: File) {
+    if (!file || componentId !== "shiny-pill") return;
+    setShinyGraphicError("");
+    try {
+      const next = await inspectShinyGraphic(file);
+      if (shinyContentMode === "text") shinyTextBeforeGraphicRef.current = text;
+      setShinyGraphic(next);
+      setShinyContentMode("graphic");
+      setShinyGraphicScale(100);
+      setText("");
+    } catch (error) {
+      setShinyGraphicError(error instanceof Error ? error.message : String(error));
+    }
+  }
+  const removeShinyGraphic = () => {
+    setShinyGraphic(undefined);
+    setShinyContentMode("text");
+    setShinyGraphicScale(100);
+    setShinyGraphicError("");
+    setText(shinyTextBeforeGraphicRef.current);
+  };
+  const showShinyText = () => {
+    if (shinyContentMode === "text") return;
+    setShinyContentMode("text");
+    setText(shinyTextBeforeGraphicRef.current);
+  };
+  const showShinyGraphic = () => {
+    if (shinyContentMode === "graphic") return;
+    shinyTextBeforeGraphicRef.current = text;
+    setShinyContentMode("graphic");
+    setText("");
+  };
   const startInteractionRecording = () => {
     setReplayingInteraction(false);
     setInteractionTrack([]);
@@ -1135,16 +1245,20 @@ export default function App() {
             }}
             data-testid="render-stage"
             onDragOver={(event) => {
-              if (!isBorderComponent || (!event.dataTransfer.types.includes("Files") && !Array.from(event.dataTransfer.items).some((item) => item.type === "image/png"))) return;
+              const acceptsBorder = isBorderComponent && Array.from(event.dataTransfer.items).some((item) => item.type === "image/png");
+              const acceptsShiny = isShinyPill && Array.from(event.dataTransfer.items).some((item) => item.type === "image/png" || item.type === "image/svg+xml");
+              if (!acceptsBorder && !acceptsShiny && !event.dataTransfer.types.includes("Files")) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "copy";
             }}
             onDrop={(event) => {
-              if (!isBorderComponent) return;
-              const file = Array.from(event.dataTransfer.files).find((candidate) => candidate.type === "image/png");
+              const file = Array.from(event.dataTransfer.files).find((candidate) =>
+                isShinyPill ? Boolean(shinyGraphicKind(candidate)) : candidate.type === "image/png",
+              );
               if (!file) return;
               event.preventDefault();
-              void loadBorderPng(file, borderIllustration ? "overlay" : "background");
+              if (isShinyPill) void loadShinyGraphic(file);
+              else if (isBorderComponent) void loadBorderPng(file, borderIllustration ? "overlay" : "background");
             }}
             onPointerEnter={(event) => recordInteraction(event, true, false, true)}
             onPointerMove={(event) => recordInteraction(event, true)}
@@ -1169,6 +1283,10 @@ export default function App() {
               text={text}
               fontSize={fontSize}
               fontFamily={fontFamily}
+              fontFace={fontFace}
+              fontWeight={fontWeight}
+              shinyGraphic={activeShinyGraphic}
+              shinyGraphicScale={shinyGraphicScale}
               interactionTrack={replayingInteraction ? interactionTrack : []}
               lightBloom={lightBloom}
               frostedTypeBand={frostedTypeBand}
@@ -1369,8 +1487,8 @@ export default function App() {
                 </label>
               </div>
             )}
-            {!isFrostedTypeBand && !isPaperImage && !isInspiraRipple && <div className="color-row">
-              <div className="field color-field">
+            {!isFrostedTypeBand && !isPaperImage && !isInspiraRipple && <div className={`color-row ${isShinyGraphicMode ? "single" : ""}`}>
+              {!isShinyGraphicMode && <div className="field color-field">
                 <button
                   type="button"
                   className="color-field-reset"
@@ -1411,16 +1529,16 @@ export default function App() {
                     }}
                   />
                 </span>
-              </div>
+              </div>}
               <div className="field color-field">
                 <button
                   type="button"
                   className="color-field-reset"
-                  aria-label="高光颜色，恢复默认值"
+                  aria-label={`${isShinyPill ? "扫光颜色" : "高光颜色"}，恢复默认值`}
                   title="恢复默认值"
                   onClick={() => setAccentColor(componentColorDefaults.accentColor)}
                 >
-                  高光颜色
+                  {isShinyPill ? "扫光颜色" : "高光颜色"}
                 </button>
                 <span
                   className={`color-swatch ${accentColor.toUpperCase() === "#FFFFFF" ? "is-white" : ""}`}
@@ -1428,7 +1546,7 @@ export default function App() {
                 >
                   <span className="color-code">{accentColor.toUpperCase()}</span>
                   <input
-                    aria-label="高光颜色"
+                    aria-label={isShinyPill ? "扫光颜色" : "高光颜色"}
                     type="color"
                     value={accentColor}
                     onChange={(event) => setAccentColor(event.target.value)}
@@ -1436,7 +1554,7 @@ export default function App() {
                 </span>
               </div>
             </div>}
-            {hasMaterialAppearance && (
+            {hasMaterialAppearance && !isShinyGraphicMode && (
               <div className="appearance-panel">
                 <label className="check-row material-toggle">
                   <input
@@ -1714,18 +1832,17 @@ export default function App() {
                 />
                 <LocalFontPicker
                   value={frostedTypeBand.fontFamily}
+                  faceValue={frostedTypeBand.fontFace}
+                  weightValue={frostedTypeBand.fontWeight}
+                  defaultValue={DEFAULT_FROSTED_TYPE_BAND.fontFamily}
+                  defaultFaceValue={DEFAULT_FROSTED_TYPE_BAND.fontFace}
                   onChange={(fontFamily) =>
-                    setFrostedTypeBand((value) => ({ ...value, fontFamily }))
+                    setFrostedTypeBand((value) => ({ ...value, fontFamily, fontFace: "" }))
                   }
-                />
-                <Slider
-                  label="字重"
-                  value={frostedTypeBand.fontWeight}
-                  min={100}
-                  max={900}
-                  step={100}
-                  display={String(frostedTypeBand.fontWeight)}
-                  onChange={(fontWeight) =>
+                  onFaceChange={(fontFace) =>
+                    setFrostedTypeBand((value) => ({ ...value, fontFace }))
+                  }
+                  onWeightChange={(fontWeight) =>
                     setFrostedTypeBand((value) => ({ ...value, fontWeight }))
                   }
                 />
@@ -1956,38 +2073,111 @@ export default function App() {
             )}
             {isTextEffect && (
               <>
-                <label className="field text-effect-field">
-                  {componentId === "typewriter" ? "文字（用 | 分隔）" : "文字"}
-                  <input
-                    type="text"
-                    value={text}
-                    onChange={(event) => setText(event.target.value)}
-                  />
-                </label>
-                <Slider
-                  label="字号"
-                  value={fontSize}
-                  min={24}
-                  max={220}
-                  step={1}
-                  display={`${fontSize}px`}
-                  onChange={setFontSize}
-                />
-                <LocalFontPicker value={fontFamily} onChange={setFontFamily} />
-                {componentId === "shiny-pill" && (
+                {isShinyPill && <div className="shiny-content-source">
+                  <div className="slider-head">
+                    <span>内容来源</span>
+                  </div>
+                  <div className="opts">
+                    <button
+                      type="button"
+                      className={`opt ${shinyContentMode === "text" ? "active" : ""}`}
+                      onClick={showShinyText}
+                    >
+                      文字
+                    </button>
+                    <button
+                      type="button"
+                      className={`opt ${shinyContentMode === "graphic" ? "active" : ""}`}
+                      onClick={showShinyGraphic}
+                    >
+                      图形
+                    </button>
+                  </div>
+                </div>}
+                {!isShinyGraphicMode && <>
+                  <label className="field text-effect-field">
+                    {componentId === "typewriter" ? "文字（用 | 分隔）" : "文字"}
+                    <input
+                      type="text"
+                      value={text}
+                      onChange={(event) => setText(event.target.value)}
+                    />
+                  </label>
                   <Slider
-                    label="扫光周期"
-                    value={duration}
-                    min={1}
-                    max={12}
-                    step={0.1}
-                    display={`${duration.toFixed(1)}秒`}
-                    onChange={(value) => {
-                      setSpeed(value);
-                      setDuration(value);
-                    }}
+                    label="字号"
+                    value={fontSize}
+                    min={24}
+                    max={220}
+                    step={1}
+                    display={`${fontSize}px`}
+                    onChange={setFontSize}
                   />
-                )}
+                  <LocalFontPicker
+                    value={fontFamily}
+                    faceValue={fontFace}
+                    weightValue={fontWeight}
+                    defaultValue={componentColorDefaults.fontFamily}
+                    defaultFaceValue={componentColorDefaults.fontFace}
+                    onChange={(value) => {
+                      setFontFamily(value);
+                      setFontFace("");
+                    }}
+                    onFaceChange={setFontFace}
+                    onWeightChange={setFontWeight}
+                  />
+                </>}
+                {isShinyPill && isShinyGraphicMode && <>
+                  <div className="illustration-fit-block shiny-graphic-control">
+                    <div className="slider-head">
+                      <span>图形素材</span>
+                      <output>{shinyGraphic ? displayIllustrationAspect(shinyGraphic.aspect) : "—"}</output>
+                    </div>
+                    <div className="illustration-actions">
+                      <label className="opt illustration-add-button">
+                        <span>添加</span>
+                        {shinyGraphic && <span className="illustration-added-check" aria-label="已添加">✓</span>}
+                        <input
+                          type="file"
+                          accept="image/png,image/svg+xml,.png,.svg"
+                          onChange={(event) => {
+                            void loadShinyGraphic(event.target.files?.[0]);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="opt"
+                        disabled={!shinyGraphic}
+                        onClick={removeShinyGraphic}
+                      >
+                        去掉
+                      </button>
+                    </div>
+                    {shinyGraphicError && <p className="field-error" role="alert">{shinyGraphicError}</p>}
+                  </div>
+                  {hasShinyGraphic && <Slider
+                    label="图形大小"
+                    value={shinyGraphicScale}
+                    min={20}
+                    max={130}
+                    step={1}
+                    display={`${shinyGraphicScale}%`}
+                    onChange={setShinyGraphicScale}
+                  />}
+                </>}
+                {isShinyPill && <Slider
+                  label="扫光周期"
+                  value={duration}
+                  min={1}
+                  max={12}
+                  step={0.1}
+                  display={`${duration.toFixed(1)}秒`}
+                  onChange={(value) => {
+                    setSpeed(value);
+                    setDuration(value);
+                  }}
+                />}
               </>
             )}
             {componentId === "coin-loader" && (
