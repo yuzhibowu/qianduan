@@ -10,7 +10,12 @@ import {
 } from "./usdz";
 import { DEFAULT_COMP, FREEFORM_COMP, type ColorComp } from "./lib/color";
 import { componentRegistry, getMotionComponent } from "./component-registry";
-import { cancelBrowserExport, exportInBrowser } from "./browser-export";
+import {
+  cancelBrowserExport,
+  exportInBrowser,
+  type BrowserExportFormat,
+  type BrowserExportProgress,
+} from "./browser-export";
 import ComponentPicker from "./components/ComponentPicker";
 import LocalFontPicker from "./components/LocalFontPicker";
 import type { InteractionSample } from "./interaction";
@@ -37,8 +42,27 @@ import {
   type SurfaceAppearance,
 } from "./appearance";
 import { adaptNeonToAspect } from "./neon-adaptation";
+import { borderLoopDuration, neonLoopDuration } from "./border-timing";
 
 type ColorTarget = "keynote" | "freeform";
+type ExportJob = BrowserExportProgress & {
+  running: boolean;
+  outputPath: string;
+  framesPath: string;
+  error: string;
+};
+
+const emptyExportJob = (): ExportJob => ({
+  running: false,
+  stage: "准备就绪",
+  frame: 0,
+  totalFrames: 0,
+  progress: 0,
+  outputPath: "",
+  framesPath: "",
+  error: "",
+});
+
 type ComponentControls = {
   baseColor: string;
   accentColor: string;
@@ -74,7 +98,7 @@ const BORDER_ASPECT_SNAPS = [
 ];
 const BORDER_DEFAULT_DURATIONS: Record<string, number> = {
   "glow-border": 10,
-  "neon-border": 9.474,
+  "neon-border": neonLoopDuration(16),
   "pulsating-border": 10,
 };
 
@@ -513,15 +537,9 @@ export default function App() {
     "shiny-pill": { ...DEFAULT_APPEARANCE, material: materialFromPreset("plastic") },
   });
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [job, setJob] = useState({
-    running: false,
-    stage: "准备就绪",
-    frame: 0,
-    totalFrames: 0,
-    progress: 0,
-    outputPath: "",
-    framesPath: "",
-    error: "",
+  const [exportJobs, setExportJobs] = useState<Record<BrowserExportFormat, ExportJob>>({
+    mov: emptyExportJob(),
+    apng: emptyExportJob(),
   });
   const [usdzJob, setUsdzJob] = useState({
     running: false,
@@ -839,40 +857,52 @@ export default function App() {
   };
 
   async function startExport(format: "mov" | "apng") {
-    setJob((current) => ({
+    setExportJobs((current) => ({
       ...current,
-      running: true,
-      stage: "准备导出",
-      frame: 0,
-      totalFrames: frameTotal,
-      progress: 0,
-      outputPath: "",
-      framesPath: "",
-      error: "",
+      [format]: {
+        ...current[format],
+        running: true,
+        stage: "准备导出",
+        frame: 0,
+        totalFrames: frameTotal,
+        progress: 0,
+        outputPath: "",
+        framesPath: "",
+        error: "",
+      },
     }));
     try {
       const result = await exportInBrowser(format, exportPayload, (progress) =>
-        setJob((current) => ({ ...current, ...progress })),
+        setExportJobs((current) => ({
+          ...current,
+          [format]: { ...current[format], ...progress },
+        })),
       );
-      setJob((current) => ({
+      setExportJobs((current) => ({
         ...current,
-        running: false,
-        stage: `Finished · 已下载 ${result.outputName}`,
-        progress: 100,
-        outputPath: "",
+        [format]: {
+          ...current[format],
+          running: false,
+          stage: `Finished · 已下载 ${result.outputName}`,
+          progress: 100,
+          outputPath: "",
+        },
       }));
     } catch (error) {
       const cancelled =
         error instanceof DOMException && error.name === "AbortError";
-      setJob((current) => ({
+      setExportJobs((current) => ({
         ...current,
-        running: false,
-        stage: cancelled ? "已取消" : "导出失败",
-        error: cancelled
-          ? ""
-          : error instanceof Error
-            ? error.message
-            : String(error),
+        [format]: {
+          ...current[format],
+          running: false,
+          stage: cancelled ? "已取消" : "导出失败",
+          error: cancelled
+            ? ""
+            : error instanceof Error
+              ? error.message
+              : String(error),
+        },
       }));
     }
   }
@@ -922,8 +952,8 @@ export default function App() {
     }
   }
 
-  async function cancelExport() {
-    cancelBrowserExport();
+  async function cancelExport(format: BrowserExportFormat) {
+    cancelBrowserExport(format);
   }
 
   useEffect(() => {
@@ -1467,7 +1497,11 @@ export default function App() {
                   }
                   step={1}
                   display={speed.toFixed(0)}
-                  onChange={setSpeed}
+                  onChange={(value) => {
+                    setSpeed(value);
+                    const nextDuration = borderLoopDuration(componentId, value);
+                    if (nextDuration !== undefined) setDuration(nextDuration);
+                  }}
                 />
                 <Slider
                   label="尺寸比例"
@@ -2167,45 +2201,51 @@ export default function App() {
             </label>
             <button
               className="btn-primary mov"
-              disabled={job.running}
+              disabled={exportJobs.mov.running}
               onClick={() => startExport("mov")}
             >
-              {job.running ? "正在导出…" : "导出透明 MOV"}
+              {exportJobs.mov.running ? "正在导出 MOV…" : "导出透明 MOV"}
             </button>
             <button
               className="btn-primary apng"
-              disabled={job.running}
+              disabled={exportJobs.apng.running}
               onClick={() => startExport("apng")}
             >
-              {job.running ? "正在导出…" : "导出 PNG 动图"}
+              {exportJobs.apng.running ? "正在导出 PNG 动图…" : "导出 PNG 动图"}
             </button>
-            {job.running && (
-              <button className="btn cancel" onClick={cancelExport}>
-                取消导出
-              </button>
-            )}
-            {job.running && (
-              <>
-                <div className="progress">
-                  <span style={{ width: `${job.progress}%` }} />
+            {(["mov", "apng"] as const).map((format) => {
+              const exportJob = exportJobs[format];
+              const formatName = format === "mov" ? "MOV" : "PNG 动图";
+              return (
+                <div key={format}>
+                  {exportJob.running && (
+                    <>
+                      <button className="btn cancel" onClick={() => cancelExport(format)}>
+                        取消{formatName}导出
+                      </button>
+                      <div className="progress">
+                        <span style={{ width: `${exportJob.progress}%` }} />
+                      </div>
+                      <p className="status">
+                        {formatName} · {exportJob.stage}
+                        {exportJob.totalFrames > 0
+                          ? ` · ${exportJob.frame} / ${exportJob.totalFrames} · ${Math.round(exportJob.progress)}%`
+                          : ""}
+                      </p>
+                    </>
+                  )}
+                  {exportJob.error && <p className="error">{formatName} · {exportJob.error}</p>}
+                  {exportJob.outputPath && (
+                    <>
+                      <p className="path">{exportJob.outputPath}</p>
+                      <button className="btn" onClick={() => revealOutput()}>
+                        在 Finder 中显示
+                      </button>
+                    </>
+                  )}
                 </div>
-                <p className="status">
-                  {job.stage}
-                  {job.totalFrames > 0
-                    ? ` · ${job.frame} / ${job.totalFrames} · ${Math.round(job.progress)}%`
-                    : ""}
-                </p>
-              </>
-            )}
-            {job.error && <p className="error">{job.error}</p>}
-            {job.outputPath && (
-              <>
-                <p className="path">{job.outputPath}</p>
-                <button className="btn" onClick={() => revealOutput()}>
-                  在 Finder 中显示
-                </button>
-              </>
-            )}
+              );
+            })}
             <div className="format-divider">
               <span>苹果原生3D格式</span>
             </div>
@@ -2302,7 +2342,8 @@ export default function App() {
                   : "该网页特效无法转换为真实 3D 几何"
               }
               disabled={
-                job.running ||
+                exportJobs.mov.running ||
+                exportJobs.apng.running ||
                 usdzJob.running ||
                 !componentDefinition.exportCapabilities.includes("usdz")
               }

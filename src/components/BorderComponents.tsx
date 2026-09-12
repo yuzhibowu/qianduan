@@ -13,6 +13,7 @@ import type { PaperImageSettings } from "./PaperImageRenderer";
 import type { BorderIllustration } from "../border-illustration";
 import { alphaEdgeMaskPixels } from "../alpha-edge-mask";
 import { angleAtPerimeterPhase, perimeterAngleLut } from "../alpha-perimeter";
+import { neonSegmentDuration } from "../border-timing";
 
 export type BorderRendererProps = {
   baseColor: string;
@@ -635,7 +636,7 @@ export function NeonBorder({
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     safeSpeed = clamp(speed, 0, 20),
-    segment = (30 + ((4 - 30) * (safeSpeed - 1)) / 19) / 4,
+    segment = neonSegmentDuration(safeSpeed),
     total = safeSpeed > 0 ? timeSeconds / segment : 0,
     step = Math.floor(total),
     progress = bezier(total - step),

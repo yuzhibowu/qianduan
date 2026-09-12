@@ -70,8 +70,8 @@ export type BrowserExportProgress = {
 };
 
 const FRAME_MEMORY_LIMIT = 192 * 1024 * 1024;
-let activeController: AbortController | null = null;
-let activeEncoder: FFmpeg | null = null;
+const activeControllers = new Map<BrowserExportFormat, AbortController>();
+const activeEncoders = new Map<BrowserExportFormat, FFmpeg>();
 let coreUrls: Promise<[string, string]> | null = null;
 
 const cancelled = (signal: AbortSignal) => {
@@ -375,7 +375,7 @@ async function cropFramesToVisibleArea(
   }
 }
 
-async function loadEncoder(signal: AbortSignal) {
+async function loadEncoder(format: BrowserExportFormat, signal: AbortSignal) {
   if (!coreUrls)
     coreUrls = Promise.all([
       toBlobURL(
@@ -389,7 +389,7 @@ async function loadEncoder(signal: AbortSignal) {
     ]);
   const [coreURL, wasmURL] = await wait(coreUrls, signal);
   const ffmpeg = new FFmpeg();
-  activeEncoder = ffmpeg;
+  activeEncoders.set(format, ffmpeg);
   await wait(ffmpeg.load({ coreURL, wasmURL }), signal);
   return ffmpeg;
 }
@@ -399,9 +399,9 @@ export async function exportInBrowser(
   settings: BrowserExportSettings,
   report: (progress: BrowserExportProgress) => void,
 ) {
-  if (activeController) throw new Error("已有导出任务正在运行");
+  if (activeControllers.has(format)) throw new Error(`已有 ${format === "mov" ? "MOV" : "PNG 动图"}导出任务正在运行`);
   const controller = new AbortController();
-  activeController = controller;
+  activeControllers.set(format, controller);
   const signal = controller.signal;
   let ffmpeg: FFmpeg | null = null;
   try {
@@ -437,7 +437,7 @@ export async function exportInBrowser(
       totalFrames: frames.length,
       progress: 74,
     });
-    ffmpeg = await loadEncoder(signal);
+    ffmpeg = await loadEncoder(format, signal);
     const names = frames.map(
       (_, index) => `frame_${String(index).padStart(5, "0")}.png`,
     );
@@ -536,12 +536,12 @@ export async function exportInBrowser(
     return { outputName, frames: frames.length };
   } finally {
     ffmpeg?.terminate();
-    activeEncoder = null;
-    activeController = null;
+    activeEncoders.delete(format);
+    activeControllers.delete(format);
   }
 }
 
-export function cancelBrowserExport() {
-  activeController?.abort(new DOMException("已取消导出", "AbortError"));
-  activeEncoder?.terminate();
+export function cancelBrowserExport(format: BrowserExportFormat) {
+  activeControllers.get(format)?.abort(new DOMException("已取消导出", "AbortError"));
+  activeEncoders.get(format)?.terminate();
 }
