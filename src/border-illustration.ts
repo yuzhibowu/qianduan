@@ -13,11 +13,15 @@ export type BorderIllustration = {
   bounds: IllustrationBounds;
   aspect: number;
   rounded: number;
+  offsetX?: number;
+  offsetY?: number;
+  scale?: number;
 };
 
 declare global {
   interface Window {
     __originKitBorderIllustrations?: Record<string, BorderIllustration>;
+    __originKitBorderOverlayIllustrations?: Record<string, BorderIllustration[]>;
   }
 }
 

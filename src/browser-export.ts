@@ -9,6 +9,11 @@ import type { InspiraRippleSettings } from "./components/InspiraRipple";
 import type { DiscCurveSettings } from "./disc-curve";
 import type { BorderIllustration } from "./border-illustration";
 import { buildFullFrameApng } from "./apng";
+import {
+  ADAPTIVE_SAFETY_PADDING,
+  adaptiveAlphaBounds,
+  type PixelBounds,
+} from "./adaptive-bounds";
 
 export type BrowserExportFormat = "mov" | "apng";
 
@@ -37,6 +42,7 @@ export type BrowserExportSettings = {
   neonPosition: number;
   borderAspect: number;
   borderIllustration?: BorderIllustration;
+  borderOverlayIllustrations?: BorderIllustration[];
   innerRadius: number;
   discProportions?: number[];
   discCurve?: DiscCurveSettings;
@@ -158,9 +164,14 @@ async function renderFrames(
 ) {
   const totalFrames = validate(settings);
   const illustrationKey = settings.borderIllustration ? crypto.randomUUID() : undefined;
+  const overlayIllustrationsKey = settings.borderOverlayIllustrations?.length ? crypto.randomUUID() : undefined;
   if (illustrationKey) {
     window.__originKitBorderIllustrations ??= {};
     window.__originKitBorderIllustrations[illustrationKey] = settings.borderIllustration!;
+  }
+  if (overlayIllustrationsKey) {
+    window.__originKitBorderOverlayIllustrations ??= {};
+    window.__originKitBorderOverlayIllustrations[overlayIllustrationsKey] = settings.borderOverlayIllustrations!;
   }
   const query = new URLSearchParams({
     render: "frame",
@@ -184,6 +195,7 @@ async function renderFrames(
     neonPosition: String(settings.neonPosition),
     borderAspect: String(settings.borderAspect),
     ...(illustrationKey ? { borderIllustrationKey: illustrationKey } : {}),
+    ...(overlayIllustrationsKey ? { borderOverlayIllustrationsKey: overlayIllustrationsKey } : {}),
     innerRadius: String(settings.innerRadius),
     discProportions: JSON.stringify(settings.discProportions ?? []),
     discCurve: JSON.stringify(settings.discCurve),
@@ -300,23 +312,10 @@ async function renderFrames(
     if (illustrationKey && window.__originKitBorderIllustrations) {
       delete window.__originKitBorderIllustrations[illustrationKey];
     }
-  }
-}
-
-type PixelBounds = { left: number; top: number; right: number; bottom: number };
-
-function alphaBounds(data: Uint8ClampedArray, width: number, height: number): PixelBounds | null {
-  let left = width, top = height, right = -1, bottom = -1;
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      if (data[(y * width + x) * 4 + 3] === 0) continue;
-      left = Math.min(left, x);
-      top = Math.min(top, y);
-      right = Math.max(right, x);
-      bottom = Math.max(bottom, y);
+    if (overlayIllustrationsKey && window.__originKitBorderOverlayIllustrations) {
+      delete window.__originKitBorderOverlayIllustrations[overlayIllustrationsKey];
     }
   }
-  return right < left ? null : { left, top, right, bottom };
 }
 
 async function cropFramesToVisibleArea(
@@ -338,7 +337,7 @@ async function cropFramesToVisibleArea(
       canvas.height = height;
       const context = canvas.getContext("2d", { willReadFrequently: true })!;
       context.drawImage(bitmap, 0, 0);
-      const bounds = alphaBounds(context.getImageData(0, 0, width, height).data, width, height);
+      const bounds = adaptiveAlphaBounds(context.getImageData(0, 0, width, height).data, width, height);
       if (bounds) union = union
         ? {
             left: Math.min(union.left, bounds.left),
@@ -349,11 +348,11 @@ async function cropFramesToVisibleArea(
         : bounds;
     }
     if (!union) return { frames, width, height };
-    // Keep one transparent pixel around the union so glow is never clipped at the file edge.
-    const left = Math.max(0, union.left - 1);
-    const top = Math.max(0, union.top - 1);
-    const right = Math.min(width - 1, union.right + 1);
-    const bottom = Math.min(height - 1, union.bottom + 1);
+    // Preserve a small safety edge around the perceptually visible glow.
+    const left = Math.max(0, union.left - ADAPTIVE_SAFETY_PADDING);
+    const top = Math.max(0, union.top - ADAPTIVE_SAFETY_PADDING);
+    const right = Math.min(width - 1, union.right + ADAPTIVE_SAFETY_PADDING);
+    const bottom = Math.min(height - 1, union.bottom + ADAPTIVE_SAFETY_PADDING);
     const cropWidth = right - left + 1;
     const cropHeight = bottom - top + 1;
     const cropped: Blob[] = [];

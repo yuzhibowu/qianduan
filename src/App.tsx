@@ -36,6 +36,7 @@ import {
   type MaterialPresetId,
   type SurfaceAppearance,
 } from "./appearance";
+import { adaptNeonToAspect } from "./neon-adaptation";
 
 type ColorTarget = "keynote" | "freeform";
 type ComponentControls = {
@@ -336,8 +337,8 @@ export default function App() {
   const query = new URLSearchParams(window.location.search);
   const exportMode = query.get("render") === "frame";
   const exportTime = Number(query.get("time") ?? 0);
-  const exportWidth = Number(query.get("width") ?? 1920);
-  const exportHeight = Number(query.get("height") ?? 1080);
+  const exportWidth = Number(query.get("width") ?? 1280);
+  const exportHeight = Number(query.get("height") ?? 720);
   const queryComponent = query.get("component") ?? "coin-loader";
   const queryDefaults =
     COMPONENT_DEFAULTS[queryComponent] ?? COMPONENT_DEFAULTS["coin-loader"];
@@ -437,6 +438,15 @@ export default function App() {
     }
     catch { return undefined; }
   })();
+  const queryBorderOverlayIllustrations: BorderIllustration[] = (() => {
+    try {
+      const key = query.get("borderOverlayIllustrationsKey");
+      if (key && window.parent !== window)
+        return window.parent.__originKitBorderOverlayIllustrations?.[key] ?? [];
+      return JSON.parse(query.get("borderOverlayIllustrations") ?? "[]") ?? [];
+    }
+    catch { return []; }
+  })();
   const [componentId, setComponentId] = useState(queryComponent);
   const [exportFrameTime, setExportFrameTime] = useState(exportTime);
   const [playing, setPlaying] = useState(true);
@@ -460,6 +470,10 @@ export default function App() {
   const [borderIllustrations, setBorderIllustrations] = useState<Record<string, BorderIllustration | undefined>>(
     queryBorderIllustration ? { [queryComponent]: queryBorderIllustration } : {},
   );
+  const [borderOverlayIllustrations, setBorderOverlayIllustrations] = useState<Record<string, BorderIllustration[]>>(
+    queryBorderOverlayIllustrations.length ? { [queryComponent]: queryBorderOverlayIllustrations } : {},
+  );
+  const [selectedBorderOverlayIndices, setSelectedBorderOverlayIndices] = useState<Record<string, number | undefined>>({});
   const [innerRadius, setInnerRadius] = useState(queryInnerRadius);
   const [text, setText] = useState(queryText);
   const [fontSize, setFontSize] = useState(queryFontSize);
@@ -478,12 +492,12 @@ export default function App() {
   const [width, setWidth] = useState(exportWidth);
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
-  const [aspectRatio, setAspectRatio] = useState<"16:9" | "1:1" | "adaptive">("16:9");
+  const [aspectRatio, setAspectRatio] = useState<"16:9" | "1:1" | "adaptive">("adaptive");
   const [duration, setDuration] = useState(queryDuration);
   const [delay, setDelay] = useState(0);
   const [background, setBackground] = useState("transparent");
   const [loop, setLoop] = useState(true);
-  const [pngCompression, setPngCompression] = useState(false);
+  const [pngCompression, setPngCompression] = useState(true);
   const [colorCorrection, setColorCorrection] = useState(false);
   const [colorTarget, setColorTarget] = useState<ColorTarget>("keynote");
   const [emissiveLift, setEmissiveLift] = useState(
@@ -536,6 +550,10 @@ export default function App() {
   const isInspiraRipple = componentId === "inspira-ripple";
   const isTextEffect = ["typewriter", "text-ring", "shiny-pill"].includes(componentId);
   const borderIllustration = borderIllustrations[componentId];
+  const borderPngLayers = borderOverlayIllustrations[componentId] ?? [];
+  const selectedBorderOverlayIndex = selectedBorderOverlayIndices[componentId];
+  const neonAdaptation = adaptNeonToAspect(borderIllustration?.aspect ?? 16 / 9);
+  const componentColorDefaults = COMPONENT_DEFAULTS[componentId] ?? COMPONENT_DEFAULTS["coin-loader"];
   const supportsInteractionRecording =
     componentDefinition.triggerMode === "pointer";
   const is3DComponent = ["coin-loader", "disc-split", "gyro-loader"].includes(componentId);
@@ -556,11 +574,11 @@ export default function App() {
       const file = item?.getAsFile();
       if (!file) return;
       event.preventDefault();
-      void loadBorderPng(file);
+      void loadBorderPng(file, borderIllustration ? "overlay" : "background");
     };
     document.addEventListener("paste", paste);
     return () => document.removeEventListener("paste", paste);
-  }, [componentId, exportMode, isBorderComponent]);
+  }, [borderIllustration, componentId, exportMode, isBorderComponent]);
 
   useEffect(() => {
     if (exportMode || !isBorderComponent || !borderIllustration) return;
@@ -573,6 +591,11 @@ export default function App() {
         setBorderIllustrations((current) => ({ ...current, [componentId]: next }));
         setBorderAspect(next.aspect);
         setRounded(next.rounded);
+        if (componentId === "neon-border") {
+          const adapted = adaptNeonToAspect(next.aspect);
+          setBorderWidth(adapted.borderWidth);
+          setNeonLength(adapted.neonLength);
+        }
       })
       .catch(console.error);
     return () => { live = false; };
@@ -638,6 +661,7 @@ export default function App() {
           neonPosition={queryNeonPosition}
           borderAspect={queryBorderAspect}
           borderIllustration={queryBorderIllustration}
+          borderOverlayIllustrations={queryBorderOverlayIllustrations}
           canvasAspect={exportWidth / Math.max(1, exportHeight)}
           appearance={appearance}
         />
@@ -675,6 +699,7 @@ export default function App() {
       neonPosition,
       borderAspect,
       borderIllustration,
+      borderOverlayIllustrations: borderPngLayers,
       innerRadius,
       discProportions,
       discCurve,
@@ -718,6 +743,7 @@ export default function App() {
       neonPosition,
       borderAspect,
       borderIllustration,
+      borderPngLayers,
       innerRadius,
       discProportions,
       discCurve,
@@ -974,13 +1000,29 @@ export default function App() {
       }));
     reader.readAsDataURL(file);
   };
-  async function loadBorderPng(file?: File) {
+  async function loadBorderPng(file?: File, target: "background" | "overlay" = "background") {
     if (!file || file.type !== "image/png" || !isBorderComponent) return;
     try {
       const next = await inspectBorderIllustration(file);
+      if (target === "overlay") {
+        setBorderOverlayIllustrations((current) => ({
+          ...current,
+          [componentId]: [...(current[componentId] ?? []), { ...next, offsetX: 0, offsetY: 0, scale: 100 }],
+        }));
+        setSelectedBorderOverlayIndices((current) => ({
+          ...current,
+          [componentId]: borderPngLayers.length,
+        }));
+        return;
+      }
       setBorderIllustrations((current) => ({ ...current, [componentId]: next }));
       setBorderAspect(next.aspect);
       setRounded(next.rounded);
+      if (componentId === "neon-border") {
+        const adapted = adaptNeonToAspect(next.aspect);
+        setBorderWidth(adapted.borderWidth);
+        setNeonLength(adapted.neonLength);
+      }
     } catch (error) {
       console.error(error);
     }
@@ -1033,7 +1075,7 @@ export default function App() {
         <header className="titlebar">
           <strong className="tool-name">前端→Keynote</strong>
           <div className="title-actions">
-            <span className="version">260910X17</span>
+            <span className="version">260912X1</span>
             <button
               className="theme-toggle"
               aria-label={
@@ -1072,7 +1114,7 @@ export default function App() {
               const file = Array.from(event.dataTransfer.files).find((candidate) => candidate.type === "image/png");
               if (!file) return;
               event.preventDefault();
-              void loadBorderPng(file);
+              void loadBorderPng(file, borderIllustration ? "overlay" : "background");
             }}
             onPointerEnter={(event) => recordInteraction(event, true, false, true)}
             onPointerMove={(event) => recordInteraction(event, true)}
@@ -1109,6 +1151,17 @@ export default function App() {
               neonPosition={neonPosition}
               borderAspect={borderAspect}
               borderIllustration={borderIllustration}
+              borderOverlayIllustrations={borderPngLayers}
+              selectedBorderOverlayIndex={selectedBorderOverlayIndex}
+              onBorderOverlayChange={(index, offsetX, offsetY, scale) => {
+                setSelectedBorderOverlayIndices((current) => ({ ...current, [componentId]: index }));
+                setBorderOverlayIllustrations((current) => ({
+                  ...current,
+                  [componentId]: (current[componentId] ?? []).map((value, candidate) =>
+                    candidate === index ? { ...value, offsetX, offsetY, scale } : value,
+                  ),
+                }));
+              }}
               canvasAspect={
                 aspectRatio === "1:1"
                   ? 1
@@ -1287,8 +1340,23 @@ export default function App() {
               </div>
             )}
             {!isFrostedTypeBand && !isPaperImage && !isInspiraRipple && <div className="color-row">
-              <label className="field color-field">
-                <span>主体颜色</span>
+              <div className="field color-field">
+                <button
+                  type="button"
+                  className="color-field-reset"
+                  aria-label="主体颜色，恢复默认值"
+                  title="恢复默认值"
+                  onClick={() => {
+                    setBaseColor(componentColorDefaults.baseColor);
+                    if (hasMaterialAppearance && appearance.enabled)
+                      updateAppearance((current) => ({
+                        ...current,
+                        material: { ...current.material, color: componentColorDefaults.baseColor },
+                      }));
+                  }}
+                >
+                  主体颜色
+                </button>
                 <span
                   className={`color-swatch ${(hasMaterialAppearance && appearance.enabled ? appearance.material.color : baseColor).toUpperCase() === "#FFFFFF" ? "is-white" : ""}`}
                   style={{
@@ -1313,9 +1381,17 @@ export default function App() {
                     }}
                   />
                 </span>
-              </label>
-              <label className="field color-field">
-                <span>高光颜色</span>
+              </div>
+              <div className="field color-field">
+                <button
+                  type="button"
+                  className="color-field-reset"
+                  aria-label="高光颜色，恢复默认值"
+                  title="恢复默认值"
+                  onClick={() => setAccentColor(componentColorDefaults.accentColor)}
+                >
+                  高光颜色
+                </button>
                 <span
                   className={`color-swatch ${accentColor.toUpperCase() === "#FFFFFF" ? "is-white" : ""}`}
                   style={{ background: accentColor, color: colorCodeInk(accentColor) }}
@@ -1328,7 +1404,7 @@ export default function App() {
                     onChange={(event) => setAccentColor(event.target.value)}
                   />
                 </span>
-              </label>
+              </div>
             </div>}
             {hasMaterialAppearance && (
               <div className="appearance-panel">
@@ -1417,6 +1493,7 @@ export default function App() {
                   step={1}
                   display={`${borderWidth}px`}
                   onChange={setBorderWidth}
+                  defaultValue={componentId === "neon-border" ? neonAdaptation.borderWidth : undefined}
                 />
                 <Slider
                   label="圆角"
@@ -1446,6 +1523,7 @@ export default function App() {
                       step={1}
                       display={`${neonLength}%`}
                       onChange={setNeonLength}
+                      defaultValue={neonAdaptation.neonLength}
                     />
                     <Slider
                       label="起始位置"
@@ -1461,7 +1539,7 @@ export default function App() {
                 <div className="field-section-divider" aria-hidden="true" />
                 <div className="illustration-fit-block">
                   <div className="slider-head">
-                    <span>适应插图</span>
+                    <span>背景插图</span>
                     <output>{borderIllustration ? displayIllustrationAspect(borderIllustration.aspect) : "—"}</output>
                   </div>
                   <div className="illustration-actions">
@@ -1472,7 +1550,7 @@ export default function App() {
                         type="file"
                         accept="image/png,.png"
                         onChange={(event) => {
-                          void loadBorderPng(event.target.files?.[0]);
+                          void loadBorderPng(event.target.files?.[0], "background");
                           event.currentTarget.value = "";
                         }}
                       />
@@ -1481,7 +1559,52 @@ export default function App() {
                       type="button"
                       className="opt"
                       disabled={!borderIllustration}
-                      onClick={() => setBorderIllustrations((current) => ({ ...current, [componentId]: undefined }))}
+                      onClick={() => {
+                        setBorderIllustrations((current) => ({ ...current, [componentId]: undefined }));
+                        if (componentId === "neon-border") {
+                          const defaults = adaptNeonToAspect(16 / 9);
+                          setBorderWidth(defaults.borderWidth);
+                          setNeonLength(defaults.neonLength);
+                        }
+                      }}
+                    >
+                      去掉
+                    </button>
+                  </div>
+                </div>
+                <div className="illustration-fit-block illustration-overlay-block">
+                  <div className="slider-head">
+                    <span>PNG 插图</span>
+                    <output>{borderPngLayers.length ? `${borderPngLayers.length} 层` : "—"}</output>
+                  </div>
+                  <div className="illustration-actions">
+                    <label className="opt illustration-add-button">
+                      <span>添加</span>
+                      {borderPngLayers.length > 0 && <span className="illustration-added-check" aria-label="已添加">✓</span>}
+                      <input
+                        type="file"
+                        accept="image/png,.png"
+                        multiple
+                        onChange={(event) => {
+                          Array.from(event.target.files ?? []).forEach((file) => void loadBorderPng(file, "overlay"));
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="opt"
+                      disabled={!borderPngLayers.length}
+                      onClick={() => {
+                        setBorderOverlayIllustrations((current) => ({
+                          ...current,
+                          [componentId]: (current[componentId] ?? []).slice(0, -1),
+                        }));
+                        setSelectedBorderOverlayIndices((current) => ({
+                          ...current,
+                          [componentId]: borderPngLayers.length > 1 ? borderPngLayers.length - 2 : undefined,
+                        }));
+                      }}
                     >
                       去掉
                     </button>

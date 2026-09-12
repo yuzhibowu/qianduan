@@ -350,6 +350,9 @@ h2 {
 .illustration-fit-block {
   margin: 0;
 }
+.illustration-overlay-block {
+  margin-top: 14px;
+}
 .illustration-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -460,6 +463,20 @@ h2 {
   color: var(--label);
   font-size: 12px;
   font-weight: 680;
+}
+.color-field-reset {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.color-field-reset:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 3px;
 }
 .field input {
   width: 100%;

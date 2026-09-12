@@ -1,9 +1,18 @@
 import { PulsingBorder } from "@paper-design/shaders-react";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { InteractionSample } from "../interaction";
 import type { FrostedTypeBandSettings } from "./FrostedTypeBandRenderer";
 import type { PaperImageSettings } from "./PaperImageRenderer";
 import type { BorderIllustration } from "../border-illustration";
+import { alphaEdgeMaskPixels } from "../alpha-edge-mask";
+import { angleAtPerimeterPhase, perimeterAngleLut } from "../alpha-perimeter";
 
 export type BorderRendererProps = {
   baseColor: string;
@@ -20,6 +29,9 @@ export type BorderRendererProps = {
   neonPosition?: number;
   borderAspect?: number;
   borderIllustration?: BorderIllustration;
+  borderOverlayIllustrations?: BorderIllustration[];
+  selectedBorderOverlayIndex?: number;
+  onBorderOverlayChange?: (index: number, offsetX: number, offsetY: number, scale: number) => void;
   canvasAspect?: number;
   coins?: {
     count: number;
@@ -119,8 +131,40 @@ function decodePng(src: string) {
   return promise;
 }
 
-function Illustration({ value, timeSeconds }: { value?: BorderIllustration; timeSeconds: number }) {
+function Illustration({
+  value,
+  timeSeconds,
+  overlay = false,
+  overlayIndex = -1,
+  onOverlayChange,
+  selected = false,
+  frameSize = { width: 0, height: 0 },
+}: {
+  value?: BorderIllustration;
+  timeSeconds: number;
+  overlay?: boolean;
+  overlayIndex?: number;
+  onOverlayChange?: (index: number, offsetX: number, offsetY: number, scale: number) => void;
+  selected?: boolean;
+  frameSize?: Size;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    offsetX: number;
+    offsetY: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const resizeRef = useRef<{
+    pointerId: number;
+    centerX: number;
+    centerY: number;
+    startDistance: number;
+    scale: number;
+  } | null>(null);
   const [decoded, setDecoded] = useState<DecodedPng | null>(null);
   useEffect(() => {
     if (!value) return;
@@ -129,7 +173,8 @@ function Illustration({ value, timeSeconds }: { value?: BorderIllustration; time
       if (live) setDecoded(result);
       return result;
     });
-    window.__originKitAssetsReady = ready.then(() => undefined);
+    const previous = window.__originKitAssetsReady ?? Promise.resolve();
+    window.__originKitAssetsReady = Promise.all([previous, ready]).then(() => undefined);
     return () => { live = false; };
   }, [value]);
   useLayoutEffect(() => {
@@ -148,7 +193,19 @@ function Illustration({ value, timeSeconds }: { value?: BorderIllustration; time
   }, [decoded, timeSeconds, value]);
   if (!value) return null;
   const { bounds, naturalWidth, naturalHeight } = value;
-  const style: CSSProperties = {
+  const overlayScale = value.scale ?? 100;
+  const style: CSSProperties = overlay ? {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    transform: `scale(${overlayScale / 100})`,
+    transformOrigin: "center",
+    pointerEvents: onOverlayChange ? "auto" : "none",
+    touchAction: "none",
+    cursor: onOverlayChange ? "move" : undefined,
+  } : {
     position: "absolute",
     zIndex: 0,
     left: `${(-bounds.x / bounds.width) * 100}%`,
@@ -158,11 +215,237 @@ function Illustration({ value, timeSeconds }: { value?: BorderIllustration; time
     maxWidth: "none",
     pointerEvents: "none",
   };
-  return decoded ? (
-    <canvas ref={canvasRef} width={naturalWidth} height={naturalHeight} style={style} />
+  const pointerHandlers = !overlay || !onOverlayChange ? {} : {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      const frame = event.currentTarget.parentElement?.getBoundingClientRect();
+      if (!frame) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      dragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        offsetX: value.offsetX ?? 0,
+        offsetY: value.offsetY ?? 0,
+        width: Math.max(1, frame.width),
+        height: Math.max(1, frame.height),
+      };
+      onOverlayChange(overlayIndex, value.offsetX ?? 0, value.offsetY ?? 0, overlayScale);
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const drag = dragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onOverlayChange(
+        overlayIndex,
+        drag.offsetX + ((event.clientX - drag.startX) / drag.width) * 100,
+        drag.offsetY + ((event.clientY - drag.startY) / drag.height) * 100,
+        overlayScale,
+      );
+    },
+    onPointerUp: (event: ReactPointerEvent<HTMLElement>) => {
+      if (dragRef.current?.pointerId !== event.pointerId) return;
+      dragRef.current = null;
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    },
+    onPointerCancel: () => { dragRef.current = null; },
+  };
+  const media = decoded ? (
+    <canvas ref={canvasRef} width={naturalWidth} height={naturalHeight} style={style} {...pointerHandlers} />
   ) : (
-    <img src={value.src} alt="" style={style} />
+    <img src={value.src} alt="" draggable={false} style={style} {...pointerHandlers} />
   );
+  if (!overlay) return media;
+
+  const frameAspect = frameSize.width / Math.max(1, frameSize.height);
+  const sourceAspect = naturalWidth / Math.max(1, naturalHeight);
+  const fittedWidth = sourceAspect >= frameAspect ? 100 : (sourceAspect / frameAspect) * 100;
+  const fittedHeight = sourceAspect >= frameAspect ? (frameAspect / sourceAspect) * 100 : 100;
+  const fittedLeft = (100 - fittedWidth) / 2;
+  const fittedTop = (100 - fittedHeight) / 2;
+  const visibleRight = fittedLeft + fittedWidth * ((bounds.x + bounds.width) / naturalWidth);
+  const visibleBottom = fittedTop + fittedHeight * ((bounds.y + bounds.height) / naturalHeight);
+  const scaledRight = 50 + (visibleRight - 50) * (overlayScale / 100);
+  const scaledBottom = 50 + (visibleBottom - 50) * (overlayScale / 100);
+  return (
+    <div
+      style={{
+        position: "absolute",
+        zIndex: 2 + overlayIndex,
+        inset: 0,
+        transform: `translate(${value.offsetX ?? 0}%, ${value.offsetY ?? 0}%)`,
+        pointerEvents: "none",
+      }}
+    >
+      {media}
+      {selected && onOverlayChange && (
+        <div
+          aria-label="PNG 插图缩放锚点"
+          style={{
+            position: "absolute",
+            zIndex: 20,
+            left: `${scaledRight}%`,
+            top: `${scaledBottom}%`,
+            width: 12,
+            height: 12,
+            boxSizing: "border-box",
+            border: "1.5px solid #1d1d1f",
+            background: "#fff",
+            transform: "translate(-50%, -50%)",
+            pointerEvents: "auto",
+            touchAction: "none",
+            cursor: "nwse-resize",
+          }}
+          onPointerDown={(event) => {
+            const frame = event.currentTarget.parentElement?.getBoundingClientRect();
+            if (!frame) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            const centerX = frame.left + frame.width / 2;
+            const centerY = frame.top + frame.height / 2;
+            resizeRef.current = {
+              pointerId: event.pointerId,
+              centerX,
+              centerY,
+              startDistance: Math.max(1, Math.hypot(event.clientX - centerX, event.clientY - centerY)),
+              scale: overlayScale,
+            };
+          }}
+          onPointerMove={(event) => {
+            const resize = resizeRef.current;
+            if (!resize || resize.pointerId !== event.pointerId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const distance = Math.hypot(event.clientX - resize.centerX, event.clientY - resize.centerY);
+            onOverlayChange(
+              overlayIndex,
+              value.offsetX ?? 0,
+              value.offsetY ?? 0,
+              clamp(resize.scale * (distance / resize.startDistance), 10, 400),
+            );
+          }}
+          onPointerUp={(event) => {
+            if (resizeRef.current?.pointerId !== event.pointerId) return;
+            resizeRef.current = null;
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
+          onPointerCancel={() => { resizeRef.current = null; }}
+        />
+      )}
+    </div>
+  );
+}
+
+function OverlayIllustrations({
+  values,
+  timeSeconds,
+  onChange,
+  selectedIndex,
+  frameSize,
+}: {
+  values?: BorderIllustration[];
+  timeSeconds: number;
+  onChange?: (index: number, offsetX: number, offsetY: number, scale: number) => void;
+  selectedIndex?: number;
+  frameSize: Size;
+}) {
+  return values?.map((value, index) => (
+    <Illustration
+      key={`${value.src.slice(-48)}-${index}`}
+      value={value}
+      timeSeconds={timeSeconds}
+      overlay
+      overlayIndex={index}
+      onOverlayChange={onChange}
+      selected={selectedIndex === index}
+      frameSize={frameSize}
+    />
+  )) ?? null;
+}
+
+function useIllustrationEdgeMasks(
+  value: BorderIllustration | undefined,
+  size: Size,
+  widths: number[],
+) {
+  const [geometry, setGeometry] = useState<{ urls: string[]; angles: number[] } | null>(null);
+  const widthsKey = widths.map((width) => width.toFixed(3)).join(",");
+  useEffect(() => {
+    if (!value || size.width < 1 || size.height < 1) {
+      setGeometry(null);
+      return;
+    }
+    let live = true;
+    let objectUrls: string[] = [];
+    const ready = (async () => {
+      const source = new Image();
+      source.src = value.src;
+      await source.decode();
+      const { bounds } = value;
+      const analysisScale = Math.min(1, 2048 / Math.max(bounds.width, bounds.height));
+      const analysisWidth = Math.max(1, Math.round(bounds.width * analysisScale));
+      const analysisHeight = Math.max(1, Math.round(bounds.height * analysisScale));
+      const analysisCanvas = document.createElement("canvas");
+      analysisCanvas.width = analysisWidth;
+      analysisCanvas.height = analysisHeight;
+      const analysisContext = analysisCanvas.getContext("2d", { willReadFrequently: true });
+      if (!analysisContext) throw new Error("无法分析 PNG 的实际周长");
+      analysisContext.imageSmoothingEnabled = true;
+      analysisContext.imageSmoothingQuality = "high";
+      analysisContext.drawImage(
+        source,
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height,
+        0,
+        0,
+        analysisWidth,
+        analysisHeight,
+      );
+      const pixels = analysisContext.getImageData(0, 0, analysisWidth, analysisHeight).data;
+      const angles = perimeterAngleLut(pixels, analysisWidth, analysisHeight);
+      if (!angles.length) throw new Error("PNG 中没有可用的主体闭合轮廓");
+      const width = Math.max(1, size.width);
+      const pathUnitsPerPixel = analysisWidth / width;
+      const next = await Promise.all(widths.map(async (edgeWidth) => {
+        const maskCanvas = document.createElement("canvas");
+        maskCanvas.width = analysisWidth;
+        maskCanvas.height = analysisHeight;
+        const maskContext = maskCanvas.getContext("2d");
+        if (!maskContext) throw new Error("无法生成 PNG 的等距发光边缘");
+        maskContext.putImageData(new ImageData(
+          alphaEdgeMaskPixels(
+            pixels,
+            analysisWidth,
+            analysisHeight,
+            edgeWidth * pathUnitsPerPixel,
+          ),
+          analysisWidth,
+          analysisHeight,
+        ), 0, 0);
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          maskCanvas.toBlob((result) => result ? resolve(result) : reject(new Error("无法编码发光边缘遮罩")), "image/png");
+        });
+        return URL.createObjectURL(blob);
+      }));
+      objectUrls = next;
+      if (live) setGeometry({ urls: next, angles });
+    })().catch((error) => {
+      console.error(error);
+      if (live) setGeometry(null);
+    });
+    const previous = window.__originKitAssetsReady ?? Promise.resolve();
+    window.__originKitAssetsReady = Promise.all([previous, ready]).then(() => undefined);
+    return () => {
+      live = false;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [value, size.height, size.width, widthsKey]);
+  return geometry;
 }
 
 export function GlowBorder({
@@ -177,6 +460,9 @@ export function GlowBorder({
   borderAspect = 16 / 9,
   canvasAspect = 16 / 9,
   borderIllustration,
+  borderOverlayIllustrations,
+  onBorderOverlayChange,
+  selectedBorderOverlayIndex,
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     rotorSize = Math.ceil(Math.hypot(size.width, size.height)) + 24,
@@ -232,6 +518,7 @@ export function GlowBorder({
             }}
           />
         </div>
+        <OverlayIllustrations values={borderOverlayIllustrations} timeSeconds={timeSeconds} onChange={onBorderOverlayChange} selectedIndex={selectedBorderOverlayIndex} frameSize={size} />
       </div>
     </div>
   );
@@ -275,6 +562,7 @@ function neonArc(
   width: number,
   height: number,
   color: string,
+  perimeterAngles?: number[],
 ) {
   const w = width || 100,
     h = height || 100,
@@ -285,9 +573,12 @@ function neonArc(
   let first = 0,
     previous = 0,
     total = 0;
-  for (let i = 0; i <= 24; i++) {
-    const progress = i / 24,
-      angle = angleAt(phase + (progress - 0.5) * span, w, h);
+  for (let i = 0; i <= 96; i++) {
+    const progress = i / 96,
+      samplePhase = phase + (progress - 0.5) * span,
+      angle = perimeterAngles?.length
+        ? angleAtPerimeterPhase(perimeterAngles, samplePhase)
+        : angleAt(samplePhase, w, h);
     if (i === 0) first = angle;
     else {
       let delta = angle - previous;
@@ -338,6 +629,9 @@ export function NeonBorder({
   borderAspect = 16 / 9,
   canvasAspect = 16 / 9,
   borderIllustration,
+  borderOverlayIllustrations,
+  onBorderOverlayChange,
+  selectedBorderOverlayIndex,
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     safeSpeed = clamp(speed, 0, 20),
@@ -355,7 +649,13 @@ export function NeonBorder({
       { blur: 8, opacity: 0.5, reach: 0.3 },
       { blur: 15, opacity: 0.3, reach: 0.6 },
       { blur: 57, opacity: 0.18, reach: 1 },
+    ];
+  const contourWidths = [
+      borderWidth,
+      ...layers.map((layer) => borderWidth + glowAmount * 36 * layer.reach),
     ],
+    contourGeometry = useIllustrationEdgeMasks(borderIllustration, size, contourWidths),
+    contourMasks = contourGeometry?.urls,
     makeArc = (offset: number) =>
       neonArc(
         phase + offset + clamp(neonPosition, -100, 100) / 100,
@@ -363,7 +663,25 @@ export function NeonBorder({
         size.width,
         size.height,
         baseColor,
+        contourGeometry?.angles,
       );
+  const maskedEdge = (maskUrl: string) => (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: "var(--arc)",
+        WebkitMaskImage: `url("${maskUrl}")`,
+        WebkitMaskPosition: "center",
+        WebkitMaskRepeat: "no-repeat",
+        WebkitMaskSize: "100% 100%",
+        maskImage: `url("${maskUrl}")`,
+        maskPosition: "center",
+        maskRepeat: "no-repeat",
+        maskSize: "100% 100%",
+      }}
+    />
+  );
   const edge = (padding: number, inset = 0) => (
     <div
       style={{
@@ -395,6 +713,23 @@ export function NeonBorder({
       {glowAmount > 0 &&
         layers.map((layer, i) => {
           const reach = borderWidth + glowAmount * 36 * layer.reach;
+          if (contourMasks) {
+            return (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  opacity: layer.opacity,
+                  mixBlendMode: "plus-lighter",
+                  filter: `blur(${layer.blur}px)`,
+                  WebkitFilter: `blur(${layer.blur}px)`,
+                }}
+              >
+                {maskedEdge(contourMasks[i + 1])}
+              </div>
+            );
+          }
           return (
             <div
               key={i}
@@ -424,7 +759,7 @@ export function NeonBorder({
             mixBlendMode: "plus-lighter",
           }}
         >
-          {edge(borderWidth)}
+          {contourMasks ? maskedEdge(contourMasks[0]) : edge(borderWidth)}
         </div>
       ))}
     </div>
@@ -442,6 +777,7 @@ export function NeonBorder({
         <Illustration value={borderIllustration} timeSeconds={timeSeconds} />
         {ring(0)}
         {ring(0.5)}
+        <OverlayIllustrations values={borderOverlayIllustrations} timeSeconds={timeSeconds} onChange={onBorderOverlayChange} selectedIndex={selectedBorderOverlayIndex} frameSize={size} />
       </div>
     </div>
   );
@@ -460,6 +796,9 @@ export function PulsatingBorder({
   borderAspect = 16 / 9,
   canvasAspect = 16 / 9,
   borderIllustration,
+  borderOverlayIllustrations,
+  onBorderOverlayChange,
+  selectedBorderOverlayIndex,
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     spread = 31,
@@ -508,6 +847,7 @@ export function PulsatingBorder({
             }}
           />
         )}
+        <OverlayIllustrations values={borderOverlayIllustrations} timeSeconds={timeSeconds} onChange={onBorderOverlayChange} selectedIndex={selectedBorderOverlayIndex} frameSize={size} />
       </div>
     </div>
   );
