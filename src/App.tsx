@@ -8,7 +8,12 @@ import {
   buildGyroLoaderUsdz,
   downloadUsdz,
 } from "./usdz";
-import { DEFAULT_COMP, FREEFORM_COMP, type ColorComp } from "./lib/color";
+import {
+  CARD_COMP,
+  DEFAULT_COMP,
+  FREEFORM_COMP,
+  type ColorComp,
+} from "./lib/color";
 import { componentRegistry, getMotionComponent } from "./component-registry";
 import {
   cancelBrowserExport,
@@ -362,8 +367,15 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     rounded: 100, glow: 0, borderAspect: 16 / 9, innerRadius: 0, duration: 2,
   },
 };
-const colorProfileFor = (target: ColorTarget): ColorComp =>
-  target === "keynote" ? DEFAULT_COMP : FREEFORM_COMP;
+const colorProfileFor = (
+  target: ColorTarget,
+  modelKind: "default" | "card" = "default",
+): ColorComp =>
+  target === "keynote"
+    ? modelKind === "card"
+      ? CARD_COMP
+      : DEFAULT_COMP
+    : FREEFORM_COMP;
 
 function displayDiscShare(value: number, count: number) {
   const equalShare = 1 / count;
@@ -854,6 +866,9 @@ export default function App() {
       appearance.backTexture,
     ],
   );
+  // Current USDZ geometries are rings, wedges, tori or a curved band rather
+  // than flat cards, so they use the default profile. A future flat-card
+  // exporter can opt into the card profile through colorProfileFor(..., "card").
   const activeColorProfile = colorProfileFor(colorTarget);
   const usdzPayload = useMemo(
     () => ({
@@ -865,11 +880,6 @@ export default function App() {
     }),
     [exportPayload, colorCorrection, activeColorProfile, emissiveLift, unlit, appearance],
   );
-  const colorMismatch =
-    (activeColorProfile.calibratedUnlit !== null &&
-      activeColorProfile.calibratedUnlit !== unlit) ||
-    (activeColorProfile.calibratedLift !== null &&
-      Math.abs(activeColorProfile.calibratedLift - emissiveLift) > 0.02);
   const chooseColorTarget = (target: ColorTarget) => {
     const profile = colorProfileFor(target);
     setColorTarget(target);
@@ -1006,10 +1016,10 @@ export default function App() {
       const result = isFrostedTypeBand
         ? await buildFrostedTypeBandUsdz(usdzPayload)
         : isDiscSplit
-        ? buildDiscSplitUsdz(usdzPayload)
+        ? await buildDiscSplitUsdz(usdzPayload)
         : isGyroLoader
           ? buildGyroLoaderUsdz(usdzPayload)
-          : buildCoinUsdz(usdzPayload);
+          : await buildCoinUsdz(usdzPayload);
       downloadUsdz(
         result.bytes,
         `OriginKit-${componentDefinition.name.replaceAll(" ", "-")}-${Date.now()}.usdz`,
@@ -2452,80 +2462,31 @@ export default function App() {
                   <span>偏色抵消</span>
                 </label>
                 {colorCorrection && (
-                  <>
-                    <div
-                      className="opts"
-                      role="group"
-                      aria-label="导出给哪个 App 使用"
+                  <div
+                    className="opts"
+                    role="group"
+                    aria-label="导出给哪个 App 使用"
+                  >
+                    <button
+                      className={`opt ${colorTarget === "keynote" ? "active" : ""}`}
+                      aria-pressed={colorTarget === "keynote"}
+                      onClick={() => chooseColorTarget("keynote")}
                     >
-                      <button
-                        className={`opt ${colorTarget === "keynote" ? "active" : ""}`}
-                        aria-pressed={colorTarget === "keynote"}
-                        onClick={() => chooseColorTarget("keynote")}
-                      >
-                        Keynote
-                      </button>
-                      <button
-                        className={`opt ${colorTarget === "freeform" ? "active" : ""}`}
-                        aria-pressed={colorTarget === "freeform"}
-                        onClick={() => chooseColorTarget("freeform")}
-                      >
-                        无边记
-                      </button>
-                    </div>
-                    <details className="color-tweaks">
-                      <summary>重新校准（一般不用）</summary>
-                      <Slider
-                        label="补光（换取更亮的颜色上限）"
-                        value={Math.round(emissiveLift * 100)}
-                        min={0}
-                        max={100}
-                        step={5}
-                        display={`${Math.round(emissiveLift * 100)}%`}
-                        onChange={(value) => setEmissiveLift(value / 100)}
-                      />
-                      <p className="color-hint">
-                        补光会用同一份颜色同时写入自发光，提高亮色上限；加得越多，立体明暗会越平。改动后需要重新校准。
-                      </p>
-                      <label className="check-row">
-                        <input
-                          type="checkbox"
-                          checked={unlit}
-                          onChange={(event) => setUnlit(event.target.checked)}
-                        />
-                        <span>完全关掉灯光（补光拉满）</span>
-                      </label>
-                      {colorMismatch && (
-                        <p className="color-warning">
-                          当前内置校准是在补光{" "}
-                          {Math.round(
-                            (activeColorProfile.calibratedLift ?? 0) * 100,
-                          )}
-                          %、灯光
-                          {activeColorProfile.calibratedUnlit ? "关着" : "开着"}
-                          时测得；当前设置不同，颜色会偏。
-                        </p>
-                      )}
-                      <p className="color-hint">
-                        当前：{activeColorProfile.calibratedAt ?? "无校准"}
-                        。这是与三棱柱项目同步的 117 格实测校准档。
-                      </p>
-                      <button
-                        className="btn reset-profile"
-                        onClick={() => {
-                          setEmissiveLift(activeColorProfile.calibratedLift ?? 0.5);
-                          setUnlit(activeColorProfile.calibratedUnlit ?? false);
-                        }}
-                      >
-                        恢复内置校准
-                      </button>
-                    </details>
-                  </>
+                      Keynote
+                    </button>
+                    <button
+                      className={`opt ${colorTarget === "freeform" ? "active" : ""}`}
+                      aria-pressed={colorTarget === "freeform"}
+                      onClick={() => chooseColorTarget("freeform")}
+                    >
+                      无边记
+                    </button>
+                  </div>
                 )}
               </div>
             )}
             <button
-              className="btn-primary"
+              className="btn-primary usdz-export"
               title={
                 componentDefinition.exportCapabilities.includes("usdz")
                   ? ""

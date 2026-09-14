@@ -1214,57 +1214,14 @@ html[data-render="frame"] #root {
   font-weight: 780;
   color: var(--ink);
 }
-.color-tweaks {
-  margin-top: 12px;
-}
-.color-tweaks > summary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  font-size: 12px;
-  font-weight: 650;
-  cursor: pointer;
-  list-style: none;
-}
-.color-tweaks > summary::-webkit-details-marker {
-  display: none;
-}
-.color-tweaks > summary:hover,
-.color-tweaks[open] > summary {
-  border-color: var(--ink);
-  background: var(--ink);
-  color: #fff;
-}
-.color-tweaks[open] > summary {
-  margin-bottom: 12px;
-}
-.color-hint,
-.color-warning {
-  margin: 10px 0 0;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--muted);
-}
-.color-warning {
-  padding-left: 9px;
-  border-left: 2px solid #ff9f0a;
-  color: #b45309;
-}
-.reset-profile {
-  width: 100%;
-  margin-top: 10px;
-}
-:root[data-theme="dark"] .color-warning {
-  color: #ffb340;
-}
 .btn-primary:disabled {
   border-color: var(--line);
   background: var(--track);
   color: var(--disabled);
   opacity: 0.72;
+}
+:root[data-theme="dark"] .btn-primary.usdz-export:not(:disabled):not(:hover) {
+  color: #000;
 }
 .motion-root {
   position: absolute;

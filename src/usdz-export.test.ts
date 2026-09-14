@@ -4,16 +4,24 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildCoinUsdz, buildDiscSplitUsdz, buildFrostedTypeBandUsdz, buildGyroLoaderUsdz } from "./usdz";
-import { DEFAULT_COMP, FREEFORM_COMP } from "./lib/color";
+import {
+  buildCoinUsdz,
+  buildDiscSplitUsdz,
+  buildFrostedTypeBandUsdz,
+  buildGyroLoaderUsdz,
+  compensateUsdzTexturePixels,
+  textureMaterialDefinition,
+} from "./usdz";
+import { CARD_COMP, DEFAULT_COMP, FREEFORM_COMP } from "./lib/color";
+import { materialFromPreset } from "./appearance";
 
 const scratch = mkdtempSync(resolve(tmpdir(), "originkit-usdz-loop-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 describe("animated USDZ loop boundary", () => {
-  it("builds an Apple-valid USDZ entirely in browser-compatible code", () => {
+  it("builds an Apple-valid USDZ entirely in browser-compatible code", async () => {
     const output = resolve(process.cwd(), "artifacts/browser-generated.usdz");
-    const result = buildCoinUsdz({
+    const result = await buildCoinUsdz({
       duration: 3,
       delay: 0,
       fps: 60,
@@ -55,11 +63,13 @@ describe("animated USDZ loop boundary", () => {
     expect(usda).not.toMatch(/,180:/);
   });
 
-  it("writes target-specific 117-swatch compensation and emissive lift into the material", () => {
-    expect(DEFAULT_COMP.samples).toHaveLength(117);
+  it("writes dense geometry-specific compensation and emissive lift into the material", async () => {
+    expect(DEFAULT_COMP.samples).toHaveLength(1130);
+    expect(CARD_COMP.samples).toHaveLength(1130);
     expect(FREEFORM_COMP.samples).toHaveLength(117);
     expect(DEFAULT_COMP.matrix).not.toEqual(FREEFORM_COMP.matrix);
-    const result = buildCoinUsdz({
+    expect(DEFAULT_COMP.matrix).not.toEqual(CARD_COMP.matrix);
+    const result = await buildCoinUsdz({
       duration: 3,
       delay: 0,
       fps: 30,
@@ -75,15 +85,49 @@ describe("animated USDZ loop boundary", () => {
     });
     const archive = unzipSync(result.bytes);
     const usda = strFromU8(archive["model.usda"]);
-    expect(usda).toContain("inputs:emissiveColor");
+    expect(usda).toContain("float inputs:metallic = 0");
+    expect(usda).toContain("float inputs:roughness = 0.9");
+    expect(usda).toMatch(/color3f inputs:emissiveColor = \((?!0\.000000,0\.000000,0\.000000)/);
     expect(usda).not.toContain(
       "color3f inputs:diffuseColor = (0.063010,0.223228,0.456411)",
     );
   });
 
-  it("builds Disc Split as real animated wedge geometry with one unique loop", () => {
+  it("precompensates texture pixels in encoded sRGB space", () => {
+    const imageData = {
+      data: new Uint8ClampedArray([51, 102, 204, 255]),
+    };
+    const original = Array.from(imageData.data);
+    compensateUsdzTexturePixels(imageData, DEFAULT_COMP);
+    expect(Array.from(imageData.data)).not.toEqual(original);
+    expect(imageData.data[3]).toBe(255);
+  });
+
+  it("uses one texture asset for diffuse and 50 percent emissive slots", () => {
+    const usda = textureMaterialDefinition(
+      "Card",
+      "CardMaterial",
+      "textures/card.png",
+      materialFromPreset("plastic"),
+      true,
+      0.5,
+    );
+    expect(usda).toContain(
+      "inputs:diffuseColor.connect = </Card/CardMaterial/Texture.outputs:rgb>",
+    );
+    expect(usda).toContain(
+      "inputs:emissiveColor.connect = </Card/CardMaterial/EmissiveTexture.outputs:rgb>",
+    );
+    expect(usda.match(/@textures\/card\.png@/g)).toHaveLength(2);
+    expect(usda).toContain("float4 inputs:scale = (0.5000,0.5000,0.5000,1)");
+    expect(usda).not.toMatch(/inputs:scale = \(([1-9][0-9]*\.|[2-9])/) ;
+    expect(usda).toContain("float inputs:metallic = 0");
+    expect(usda).toContain("float inputs:roughness = 0.9");
+  });
+
+  it("builds Disc Split as real animated wedge geometry with one unique loop", async () => {
     const output = resolve(scratch, "disc-split.usdz");
-    const result = buildDiscSplitUsdz({
+    const result = await buildDiscSplitUsdz({
       duration: 3,
       delay: 0,
       fps: 30,
@@ -123,11 +167,11 @@ describe("animated USDZ loop boundary", () => {
     expect(check.status, check.stdout + check.stderr).toBe(0);
   });
 
-  it("embeds front and back artwork as separate USDZ material slots", () => {
+  it("embeds front and back artwork as separate USDZ material slots", async () => {
     const pixel =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l8dZAAAAAElFTkSuQmCC";
     const output = resolve(scratch, "textured-coin.usdz");
-    const result = buildCoinUsdz({
+    const result = await buildCoinUsdz({
       duration: 1,
       delay: 0,
       fps: 2,

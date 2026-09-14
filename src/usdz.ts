@@ -1,5 +1,10 @@
 import { strToU8, zipSync } from "fflate";
-import { compensateToLinear, srgbToLinear, type ColorComp } from "./lib/color";
+import {
+  applyToImageData,
+  compensateToLinear,
+  srgbToLinear,
+  type ColorComp,
+} from "./lib/color";
 import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "./appearance";
 import { DEFAULT_DISC_CURVE, evaluateDiscCurve, type DiscCurveSettings } from "./disc-curve";
 import { fontFamilyStack } from "./font-catalog";
@@ -127,28 +132,86 @@ function geometry(segments = 64) {
 const tuples = (v: number[][]) =>
   `[${v.map((a) => `(${a.map((n) => Number(n.toFixed(8))).join(",")})`).join(",")}]`;
 const list = (v: number[]) => `[${v.join(",")}]`;
-const dataUrlAsset = (value: string | undefined, fallback: string) => {
+type TextureAsset = { name: string; bytes: Uint8Array };
+
+export function compensateUsdzTexturePixels(
+  imageData: Pick<ImageData, "data">,
+  compensation: ColorComp,
+) {
+  applyToImageData(imageData.data, compensation);
+}
+
+const encodePng = (canvas: HTMLCanvasElement) =>
+  new Promise<Uint8Array>((resolve, reject) => {
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        reject(new Error("USDZ 贴图编码失败"));
+        return;
+      }
+      resolve(new Uint8Array(await blob.arrayBuffer()));
+    }, "image/png");
+  });
+
+const compensateRasterBytes = async (
+  bytes: Uint8Array,
+  mime: string,
+  compensation: ColorComp,
+) => {
+  if (typeof document === "undefined" || typeof createImageBitmap === "undefined")
+    throw new Error("USDZ 贴图颜色补偿需要浏览器画布环境");
+  const bitmap = await createImageBitmap(new Blob([bytes as BlobPart], { type: mime }));
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("浏览器无法创建 USDZ 贴图画布");
+    context.drawImage(bitmap, 0, 0);
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    compensateUsdzTexturePixels(imageData, compensation);
+    context.putImageData(imageData, 0, 0);
+    return encodePng(canvas);
+  } finally {
+    bitmap.close();
+  }
+};
+
+const dataUrlAsset = async (
+  value: string | undefined,
+  fallback: string,
+  compensation?: ColorComp,
+): Promise<TextureAsset | null> => {
   if (!value) return null;
   const match = /^data:(image\/(?:png|jpeg|webp));base64,(.+)$/i.exec(value);
   if (!match) return null;
   const binary = atob(match[2]);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  if (compensation) {
+    return {
+      name: `textures/${fallback}.png`,
+      bytes: await compensateRasterBytes(bytes, match[1], compensation),
+    };
+  }
   const extension = match[1].toLowerCase() === "image/jpeg" ? "jpg" : match[1].split("/")[1];
   return { name: `textures/${fallback}.${extension}`, bytes };
 };
-const textureMaterialDefinition = (
+export const textureMaterialDefinition = (
   root: string,
   name: string,
   asset: string,
   appearance: SurfaceAppearance["material"],
+  compensationEnabled = false,
+  emissiveLift = 0.5,
+  unlit = false,
 ) => `def Material "${name}" {
     token outputs:surface.connect = </${root}/${name}/Surface.outputs:surface>
     def Shader "Surface" {
       uniform token info:id = "UsdPreviewSurface"
-      color3f inputs:diffuseColor.connect = </${root}/${name}/Texture.outputs:rgb>
-      float inputs:metallic = ${appearance.metallic.toFixed(4)}
-      float inputs:roughness = ${appearance.roughness.toFixed(4)}
+      ${unlit ? "color3f inputs:diffuseColor = (0,0,0)" : `color3f inputs:diffuseColor.connect = </${root}/${name}/Texture.outputs:rgb>`}
+      ${compensationEnabled ? `color3f inputs:emissiveColor.connect = </${root}/${name}/EmissiveTexture.outputs:rgb>` : "color3f inputs:emissiveColor = (0,0,0)"}
+      float inputs:metallic = ${compensationEnabled ? "0" : appearance.metallic.toFixed(4)}
+      float inputs:roughness = ${compensationEnabled ? "0.9" : appearance.roughness.toFixed(4)}
       float inputs:opacity = ${appearance.opacity.toFixed(4)}
       float inputs:ior = ${appearance.ior.toFixed(4)}
       token outputs:surface
@@ -160,6 +223,14 @@ const textureMaterialDefinition = (
       float2 inputs:st.connect = </${root}/${name}/Primvar.outputs:result>
       float3 outputs:rgb
     }
+    ${compensationEnabled ? `def Shader "EmissiveTexture" {
+      uniform token info:id = "UsdUVTexture"
+      asset inputs:file = @${asset}@
+      token inputs:sourceColorSpace = "sRGB"
+      float4 inputs:scale = (${emissiveLift.toFixed(4)},${emissiveLift.toFixed(4)},${emissiveLift.toFixed(4)},1)
+      float2 inputs:st.connect = </${root}/${name}/Primvar.outputs:result>
+      float3 outputs:rgb
+    }` : ""}
     def Shader "Primvar" {
       uniform token info:id = "UsdPrimvarReader_float2"
       token inputs:varname = "st"
@@ -203,42 +274,70 @@ const materialValues = (s: CoinUsdzSettings) => {
   const color =
     (s.colorComp ? compensateToLinear(material.color, s.colorComp) : null) ??
     linearRgb(material.color || s.baseColor);
-  return { material, color };
+  const compensationEnabled = Boolean(s.colorComp);
+  const unlit = compensationEnabled && Boolean(s.unlit);
+  const emissiveLift = unlit
+    ? 1
+    : compensationEnabled
+      ? Math.max(0, Math.min(1, s.emissiveLift ?? 0.5))
+      : 0;
+  return {
+    material,
+    color,
+    compensationEnabled,
+    unlit,
+    emissiveLift,
+    diffuse: unlit ? [0, 0, 0] : color,
+    emissive: color.map((value) => value * emissiveLift),
+  };
 };
 const materialDefinition = (
   root: string,
   name: string,
   color: number[],
+  emissive: number[],
   appearance: SurfaceAppearance["material"],
+  compensationEnabled = false,
 ) => `def Material "${name}" {
     token outputs:surface.connect = </${root}/${name}/Surface.outputs:surface>
     def Shader "Surface" {
       uniform token info:id = "UsdPreviewSurface"
       color3f inputs:diffuseColor = (${color.map((v) => v.toFixed(6)).join(",")})
-      color3f inputs:emissiveColor = (0,0,0)
-      float inputs:metallic = ${appearance.metallic.toFixed(4)}
-      float inputs:roughness = ${appearance.roughness.toFixed(4)}
+      color3f inputs:emissiveColor = (${emissive.map((v) => v.toFixed(6)).join(",")})
+      float inputs:metallic = ${compensationEnabled ? "0" : appearance.metallic.toFixed(4)}
+      float inputs:roughness = ${compensationEnabled ? "0.9" : appearance.roughness.toFixed(4)}
       float inputs:opacity = ${appearance.opacity.toFixed(4)}
       float inputs:ior = ${appearance.ior.toFixed(4)}
       token outputs:surface
     }
   }`;
 
-export function buildCoinUsdz(s: CoinUsdzSettings) {
+export async function buildCoinUsdz(s: CoinUsdzSettings) {
   const frames = Math.max(1, Math.round((s.duration + s.delay) * s.fps)),
     end = frames - 1,
     g = geometry();
-  const frontAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.frontTexture : undefined, "front"),
-    backAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.backTexture : undefined, "back"),
+  const frontAsset = await dataUrlAsset(
+      s.appearance?.enabled ? s.appearance.frontTexture : undefined,
+      "front",
+      s.colorComp,
+    ),
+    backAsset = await dataUrlAsset(
+      s.appearance?.enabled ? s.appearance.backTexture : undefined,
+      "back",
+      s.colorComp,
+    ),
     sideFaces = 64 * 2,
     frontFaces = Array.from({ length: 64 }, (_, i) => sideFaces + i),
     backFaces = Array.from({ length: 64 }, (_, i) => sideFaces + 64 + i),
     uvs = g.points.map(([x, _y, z]) => [x * 0.5 + 0.5, z * 0.5 + 0.5]);
-  const { material, color } = materialValues(s);
-  const unlit = Boolean(s.unlit),
-    lift = unlit ? 1 : Math.max(0, Math.min(1, s.emissiveLift ?? 0));
-  const diffuse = unlit ? [0, 0, 0] : color;
-  const emissive = color.map((v) => v * lift);
+  const {
+    material,
+    compensationEnabled,
+    unlit,
+    emissiveLift,
+    diffuse,
+    emissive,
+  } = materialValues(s);
   const samples = (fn: (t: number) => string) =>
     `{${Array.from({ length: frames }, (_, f) => `${f}: ${fn(f / s.fps)}`).join(",")}}`;
   const mesh = `def Mesh "CoinMesh" (prepend apiSchemas = ["MaterialBindingAPI"]) {
@@ -292,9 +391,9 @@ def Xform "CoinLoader" {
   matrix4d xformOp:transform:ring.timeSamples = ${ring}
   float3 xformOp:scale = (0.6,0.6,0.6)
   uniform token[] xformOpOrder = ["xformOp:transform:ring","xformOp:scale"]
-  ${materialDefinition("CoinLoader", "CoinMaterial", diffuse, material)}
-  ${frontAsset ? textureMaterialDefinition("CoinLoader", "FrontMaterial", frontAsset.name, material) : ""}
-  ${backAsset ? textureMaterialDefinition("CoinLoader", "BackMaterial", backAsset.name, material) : ""}
+  ${materialDefinition("CoinLoader", "CoinMaterial", diffuse, emissive, material, compensationEnabled)}
+  ${frontAsset ? textureMaterialDefinition("CoinLoader", "FrontMaterial", frontAsset.name, material, compensationEnabled, emissiveLift, unlit) : ""}
+  ${backAsset ? textureMaterialDefinition("CoinLoader", "BackMaterial", backAsset.name, material, compensationEnabled, emissiveLift, unlit) : ""}
   ${coins}
 }`;
   const data = strToU8(model),
@@ -455,7 +554,7 @@ const usdMatrix = (m: M4) =>
     )
     .join(",")})`;
 
-export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
+export async function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
   const frames = Math.max(1, Math.round((s.duration + s.delay) * s.fps)),
     end = frames - 1,
     count = Math.max(2, Math.round(s.count));
@@ -470,16 +569,27 @@ export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
     : weights.map(() => TAU / count);
   const customSplit = s.discProportions?.length === count && s.discProportions.some((value) => Math.abs(value - 1 / count) > 0.0001);
   const starts = spans.map((_, index) => (customSplit ? Math.PI : 0) + spans.slice(0, index).reduce((sum, value) => sum + value, 0));
-  const frontAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.frontTexture : undefined, "front"),
-    backAsset = dataUrlAsset(s.appearance?.enabled ? s.appearance.backTexture : undefined, "back"),
+  const frontAsset = await dataUrlAsset(
+      s.appearance?.enabled ? s.appearance.frontTexture : undefined,
+      "front",
+      s.colorComp,
+    ),
+    backAsset = await dataUrlAsset(
+      s.appearance?.enabled ? s.appearance.backTexture : undefined,
+      "back",
+      s.colorComp,
+    ),
     facesPerBand = 2 * 4,
     frontFaces = Array.from({ length: 32 * facesPerBand + 4 }, (_, face) => face).filter((face) => face < 32 * 8 && face % 8 < 2),
     backFaces = Array.from({ length: 32 * facesPerBand + 4 }, (_, face) => face).filter((face) => face < 32 * 8 && face % 8 >= 2 && face % 8 < 4);
-  const { material, color } = materialValues(s),
-    unlit = Boolean(s.unlit),
-    lift = unlit ? 1 : Math.max(0, Math.min(1, s.emissiveLift ?? 0)),
-    diffuse = unlit ? [0, 0, 0] : color,
-    emissive = color.map((v) => v * lift);
+  const {
+    material,
+    compensationEnabled,
+    unlit,
+    emissiveLift,
+    diffuse,
+    emissive,
+  } = materialValues(s);
   const samples = (index: number) =>
     `{${Array.from({ length: frames }, (_, frame) => {
       const t = Math.max(0, frame / s.fps - s.delay),
@@ -549,9 +659,9 @@ export function buildDiscSplitUsdz(s: DiscSplitUsdzSettings) {
   autoPlay = true
 )
 def Xform "DiscSplit" {
-  ${materialDefinition("DiscSplit", "DiscMaterial", diffuse, material)}
-  ${frontAsset ? textureMaterialDefinition("DiscSplit", "FrontMaterial", frontAsset.name, material) : ""}
-  ${backAsset ? textureMaterialDefinition("DiscSplit", "BackMaterial", backAsset.name, material) : ""}
+  ${materialDefinition("DiscSplit", "DiscMaterial", diffuse, emissive, material, compensationEnabled)}
+  ${frontAsset ? textureMaterialDefinition("DiscSplit", "FrontMaterial", frontAsset.name, material, compensationEnabled, emissiveLift, unlit) : ""}
+  ${backAsset ? textureMaterialDefinition("DiscSplit", "BackMaterial", backAsset.name, material, compensationEnabled, emissiveLift, unlit) : ""}
   ${pieces}
 }`;
   const data = strToU8(model),
@@ -616,11 +726,12 @@ export function buildGyroLoaderUsdz(s: GyroLoaderUsdzSettings) {
       0.001,
       s.duration - stagger * (count - 1) - pause,
     );
-  const { material, color } = materialValues(s),
-    unlit = Boolean(s.unlit),
-    lift = unlit ? 1 : Math.max(0, Math.min(1, s.emissiveLift ?? 0)),
-    diffuse = unlit ? [0, 0, 0] : color,
-    emissive = color.map((value) => value * lift);
+  const {
+    material,
+    compensationEnabled,
+    diffuse,
+    emissive,
+  } = materialValues(s);
   const samples = (index: number) =>
     `{${Array.from({ length: frames }, (_, frame) => {
       const time = Math.max(0, frame / s.fps - s.delay),
@@ -662,7 +773,7 @@ export function buildGyroLoaderUsdz(s: GyroLoaderUsdzSettings) {
   autoPlay = true
 )
 def Xform "GyroLoader" {
-  ${materialDefinition("GyroLoader", "GyroMaterial", diffuse, material)}
+  ${materialDefinition("GyroLoader", "GyroMaterial", diffuse, emissive, material, compensationEnabled)}
   ${rings}
 }`;
   const data = strToU8(model),
@@ -673,13 +784,16 @@ def Xform "GyroLoader" {
   };
 }
 
-const rgba = (value: string) => {
+const rgba = (value: string, compensation?: ColorComp) => {
   const hex = value.replace("#", "");
   const normalized = hex.length === 3
     ? hex.split("").map((part) => part + part).join("") + "FF"
     : hex.length === 6 ? `${hex}FF` : hex.padEnd(8, "F").slice(0, 8);
   return {
-    color: linearRgb(`#${normalized.slice(0, 6)}`),
+    color:
+      (compensation
+        ? compensateToLinear(`#${normalized.slice(0, 6)}`, compensation)
+        : null) ?? linearRgb(`#${normalized.slice(0, 6)}`),
     alpha: Number.parseInt(normalized.slice(6, 8), 16) / 255,
   };
 };
@@ -687,6 +801,7 @@ const rgba = (value: string) => {
 const textTexture = async (
   labels: string[],
   settings: FrostedTypeBandUsdzSettings["frostedTypeBand"],
+  compensation?: ColorComp,
 ) => {
   const scale = 4;
   const canvas = document.createElement("canvas");
@@ -713,6 +828,11 @@ const textTexture = async (
       x += context.measureText(character).width + letterSpacing;
     }
     x += gap - letterSpacing;
+  }
+  if (compensation) {
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    compensateUsdzTexturePixels(imageData, compensation);
+    context.putImageData(imageData, 0, 0);
   }
   const blob = await new Promise<Blob>((resolve, reject) =>
     canvas.toBlob((result) => result ? resolve(result) : reject(new Error("文字纹理编码失败")), "image/png"),
@@ -751,7 +871,16 @@ export async function buildFrostedTypeBandUsdz(
   if (!labels.length) throw new Error("至少需要一段环形文字");
   const frames = Math.max(1, Math.round((s.duration + s.delay) * s.fps));
   const end = frames - 1;
-  const textures = textureOverride ?? [await textTexture(labels, settings)];
+  const textures = textureOverride
+    ? s.colorComp
+      ? await Promise.all(
+          textureOverride.map(async (texture) => ({
+            bytes: await compensateRasterBytes(texture.bytes, "image/png", s.colorComp!),
+            aspect: texture.aspect,
+          })),
+        )
+      : textureOverride
+    : [await textTexture(labels, settings, s.colorComp)];
   if (textures.length !== 1) throw new Error("环形文字必须使用一张连续纹理");
   const height = Math.max(0.12, settings.fontSize / 55);
   const radius = Math.max(height * 1.2, (textures[0].aspect * height) / TAU);
@@ -761,7 +890,16 @@ export async function buildFrostedTypeBandUsdz(
     const progress = s.duration > 0 ? elapsed / s.duration : 0;
     return `${frame}: ${(-360 * speedTurns * progress).toFixed(6)}`;
   }).join(",")}}`;
-  const tint = rgba(settings.tint);
+  const tint = rgba(settings.tint, s.colorComp);
+  const compensationEnabled = Boolean(s.colorComp);
+  const unlit = compensationEnabled && Boolean(s.unlit);
+  const emissiveLift = unlit
+    ? 1
+    : compensationEnabled
+      ? Math.max(0, Math.min(1, s.emissiveLift ?? 0.5))
+      : 0;
+  const tintDiffuse = unlit ? [0, 0, 0] : tint.color;
+  const tintEmissive = tint.color.map((value) => value * emissiveLift);
   const bandGeometry = openBandGeometry(radius, height * 1.45);
   const textGeometry = openBandGeometry(radius * 1.006, height);
   const model = `#usda 1.0
@@ -783,9 +921,11 @@ def Xform "FrostedTypeBand" {
     token outputs:surface.connect = </FrostedTypeBand/GlassMaterial/Surface.outputs:surface>
     def Shader "Surface" {
       uniform token info:id = "UsdPreviewSurface"
-      color3f inputs:diffuseColor = (${tint.color.map((value) => value.toFixed(6)).join(",")})
+      color3f inputs:diffuseColor = (${tintDiffuse.map((value) => value.toFixed(6)).join(",")})
+      color3f inputs:emissiveColor = (${tintEmissive.map((value) => value.toFixed(6)).join(",")})
       float inputs:opacity = ${Math.max(0.04, Math.min(0.5, tint.alpha)).toFixed(4)}
-      float inputs:roughness = ${(1 - settings.refraction / 140).toFixed(4)}
+      float inputs:metallic = 0
+      float inputs:roughness = ${compensationEnabled ? "0.9" : (1 - settings.refraction / 140).toFixed(4)}
       float inputs:ior = ${(1.05 + settings.refraction / 100).toFixed(4)}
       token outputs:surface
     }
@@ -795,10 +935,11 @@ def Xform "FrostedTypeBand" {
     def Shader "Surface" {
       uniform token info:id = "UsdPreviewSurface"
       color3f inputs:diffuseColor.connect = </FrostedTypeBand/TextMaterial/Texture.outputs:rgb>
+      ${compensationEnabled ? "color3f inputs:emissiveColor.connect = </FrostedTypeBand/TextMaterial/EmissiveTexture.outputs:rgb>" : "color3f inputs:emissiveColor = (0,0,0)"}
       float inputs:opacity.connect = </FrostedTypeBand/TextMaterial/Texture.outputs:a>
       float inputs:opacityThreshold = 0.02
       float inputs:metallic = 0
-      float inputs:roughness = 0.28
+      float inputs:roughness = ${compensationEnabled ? "0.9" : "0.28"}
       token outputs:surface
     }
     def Shader "Texture" {
@@ -809,6 +950,14 @@ def Xform "FrostedTypeBand" {
       float3 outputs:rgb
       float outputs:a
     }
+    ${compensationEnabled ? `def Shader "EmissiveTexture" {
+      uniform token info:id = "UsdUVTexture"
+      asset inputs:file = @textures/text-band.png@
+      token inputs:sourceColorSpace = "sRGB"
+      float4 inputs:scale = (${emissiveLift.toFixed(4)},${emissiveLift.toFixed(4)},${emissiveLift.toFixed(4)},1)
+      float2 inputs:st.connect = </FrostedTypeBand/TextMaterial/Primvar.outputs:result>
+      float3 outputs:rgb
+    }` : ""}
     def Shader "Primvar" {
       uniform token info:id = "UsdPrimvarReader_float2"
       token inputs:varname = "st"
