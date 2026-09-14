@@ -85,3 +85,133 @@ export function alphaEdgeMaskPixels(
   }
   return result;
 }
+
+type Point = { x: number; y: number };
+
+const cross = (origin: Point, left: Point, right: Point) =>
+  (left.x - origin.x) * (right.y - origin.y) -
+  (left.y - origin.y) * (right.x - origin.x);
+
+function convexHull(points: Point[]) {
+  if (points.length <= 1) return points;
+  const sorted = [...points].sort((left, right) => left.x - right.x || left.y - right.y);
+  const half = (values: Point[]) => {
+    const result: Point[] = [];
+    for (const point of values) {
+      while (result.length >= 2 && cross(result[result.length - 2], result[result.length - 1], point) <= 0) {
+        result.pop();
+      }
+      result.push(point);
+    }
+    return result;
+  };
+  const lower = half(sorted);
+  const upper = half([...sorted].reverse());
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+
+function pointInsidePolygon(x: number, y: number, polygon: Point[]) {
+  let inside = false;
+  for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current++) {
+    const a = polygon[current];
+    const b = polygon[previous];
+    if (((a.y > y) !== (b.y > y)) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+export function alphaIslandCount(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  alphaThreshold = 128,
+) {
+  const visited = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  let islands = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const start = y * width + x;
+      if (visited[start] || pixels[start * 4 + 3] < alphaThreshold) continue;
+      islands += 1;
+      let head = 0;
+      let tail = 0;
+      visited[start] = 1;
+      queue[tail++] = start;
+      while (head < tail) {
+        const index = queue[head++];
+        const currentY = Math.floor(index / width);
+        const currentX = index - currentY * width;
+        for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+          const nextY = currentY + offsetY;
+          if (nextY < 0 || nextY >= height) continue;
+          for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+            const nextX = currentX + offsetX;
+            if ((offsetX === 0 && offsetY === 0) || nextX < 0 || nextX >= width) continue;
+            const next = nextY * width + nextX;
+            if (visited[next] || pixels[next * 4 + 3] < alphaThreshold) continue;
+            visited[next] = 1;
+            queue[tail++] = next;
+          }
+        }
+      }
+    }
+  }
+  return islands;
+}
+
+/**
+ * Treats disconnected Alpha islands as one piece of artwork. The filled convex
+ * envelope provides one unambiguous exterior perimeter instead of outlining
+ * every glyph and detached stroke independently. Four sub-pixel samples keep
+ * the generated boundary antialiased before the Euclidean edge mask is built.
+ */
+export function alphaGroupEnvelopePixels(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  alphaThreshold = 128,
+) {
+  const candidates: Point[] = [];
+  for (let y = 0; y < height; y += 1) {
+    let left = width;
+    let right = -1;
+    for (let x = 0; x < width; x += 1) {
+      if (pixels[(y * width + x) * 4 + 3] < alphaThreshold) continue;
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+    }
+    if (right < left) continue;
+    candidates.push(
+      { x: left, y },
+      { x: right + 1, y },
+      { x: right + 1, y: y + 1 },
+      { x: left, y: y + 1 },
+    );
+  }
+  const hull = convexHull(candidates);
+  const result = new Uint8ClampedArray(width * height * 4);
+  if (hull.length < 3) return result;
+  const left = Math.max(0, Math.floor(hull.reduce((value, point) => Math.min(value, point.x), width)));
+  const right = Math.min(width - 1, Math.ceil(hull.reduce((value, point) => Math.max(value, point.x), 0)));
+  const top = Math.max(0, Math.floor(hull.reduce((value, point) => Math.min(value, point.y), height)));
+  const bottom = Math.min(height - 1, Math.ceil(hull.reduce((value, point) => Math.max(value, point.y), 0)));
+  const samples = [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
+  for (let y = top; y <= bottom; y += 1) {
+    for (let x = left; x <= right; x += 1) {
+      let coverage = 0;
+      for (const [offsetX, offsetY] of samples) {
+        if (pointInsidePolygon(x + offsetX, y + offsetY, hull)) coverage += 1;
+      }
+      if (coverage === 0) continue;
+      const index = (y * width + x) * 4;
+      result[index] = 255;
+      result[index + 1] = 255;
+      result[index + 2] = 255;
+      result[index + 3] = Math.round((coverage / samples.length) * 255);
+    }
+  }
+  return result;
+}

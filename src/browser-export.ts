@@ -9,7 +9,7 @@ import type { InspiraRippleSettings } from "./components/InspiraRipple";
 import type { DiscCurveSettings } from "./disc-curve";
 import type { BorderIllustration } from "./border-illustration";
 import type { ShinyGraphic } from "./shiny-graphic";
-import { buildFullFrameApng } from "./apng";
+import { FullFrameApngBuilder } from "./apng";
 import {
   ADAPTIVE_SAFETY_PADDING,
   adaptiveAlphaBounds,
@@ -74,7 +74,6 @@ export type BrowserExportProgress = {
   progress: number;
 };
 
-const FRAME_MEMORY_LIMIT = 192 * 1024 * 1024;
 const activeControllers = new Map<BrowserExportFormat, AbortController>();
 const activeEncoders = new Map<BrowserExportFormat, FFmpeg>();
 let coreUrls: Promise<[string, string]> | null = null;
@@ -162,11 +161,18 @@ function validate(settings: BrowserExportSettings) {
   return frames;
 }
 
-async function renderFrames(
+type RenderSession = {
+  totalFrames: number;
+  width: number;
+  height: number;
+  renderFrame: (index: number) => Promise<HTMLCanvasElement>;
+  close: () => void;
+};
+
+async function createRenderSession(
   settings: BrowserExportSettings,
   signal: AbortSignal,
-  report: (progress: BrowserExportProgress) => void,
-) {
+): Promise<RenderSession> {
   const totalFrames = validate(settings);
   const illustrationKey = settings.borderIllustration ? crypto.randomUUID() : undefined;
   const overlayIllustrationsKey = settings.borderOverlayIllustrations?.length ? crypto.randomUUID() : undefined;
@@ -242,8 +248,18 @@ async function renderFrames(
   frame.style.cssText = `position:fixed;left:-100000px;top:0;width:${settings.width}px;height:${settings.height}px;border:0;pointer-events:none`;
   frame.src = `${location.origin}${location.pathname}?${query}`;
   document.body.append(frame);
-  const frames: Blob[] = [];
-  let storedBytes = 0;
+  const close = () => {
+    frame.remove();
+    if (illustrationKey && window.__originKitBorderIllustrations) {
+      delete window.__originKitBorderIllustrations[illustrationKey];
+    }
+    if (overlayIllustrationsKey && window.__originKitBorderOverlayIllustrations) {
+      delete window.__originKitBorderOverlayIllustrations[overlayIllustrationsKey];
+    }
+    if (shinyGraphicKey && window.__originKitShinyGraphics) {
+      delete window.__originKitShinyGraphics[shinyGraphicKey];
+    }
+  };
   try {
     await wait(
       new Promise<void>((resolve, reject) => {
@@ -283,10 +299,12 @@ async function renderFrames(
     composed.width = settings.width;
     composed.height = settings.height;
     const context = composed.getContext("2d", { alpha: true })!;
-    for (let index = 0; index < totalFrames; index += 1) {
+    const renderAt = child.__originKitRenderAt;
+    if (!renderAt) throw new Error("离屏渲染器尚未准备完成");
+    const renderFrame = async (index: number) => {
       cancelled(signal);
       const time = Math.max(0, index / settings.fps - settings.delay);
-      child.__originKitRenderAt(time);
+      renderAt(time);
       await new Promise((resolve) =>
         child.requestAnimationFrame(() => child.requestAnimationFrame(resolve)),
       );
@@ -299,97 +317,76 @@ async function renderFrames(
         context.drawImage(source, 0, 0, composed.width, composed.height);
       else {
         const { toCanvas } = await import("html-to-image");
-        const raster = await toCanvas(stage, {
-          width: settings.width,
-          height: settings.height,
-          pixelRatio: 1,
-          skipFonts: true,
-        });
+        const raster = await wait(
+          toCanvas(stage, {
+            width: settings.width,
+            height: settings.height,
+            pixelRatio: 1,
+            skipFonts: true,
+          }),
+          signal,
+        );
         context.drawImage(raster, 0, 0, composed.width, composed.height);
       }
-      const blob = await wait(canvasToBlob(composed), signal);
-      storedBytes += blob.size;
-      if (storedBytes > FRAME_MEMORY_LIMIT)
-        throw new Error("帧数据已达到 192 MB 内存保护上限，请降低导出规格");
-      frames.push(blob);
-      report({
-        stage: "Rendering Frames",
-        frame: index + 1,
-        totalFrames,
-        progress: ((index + 1) / totalFrames) * 72,
-      });
-      await new Promise((resolve) => window.setTimeout(resolve, 0));
-    }
-    return frames;
-  } finally {
-    frame.remove();
-    if (illustrationKey && window.__originKitBorderIllustrations) {
-      delete window.__originKitBorderIllustrations[illustrationKey];
-    }
-    if (overlayIllustrationsKey && window.__originKitBorderOverlayIllustrations) {
-      delete window.__originKitBorderOverlayIllustrations[overlayIllustrationsKey];
-    }
-    if (shinyGraphicKey && window.__originKitShinyGraphics) {
-      delete window.__originKitShinyGraphics[shinyGraphicKey];
-    }
+      return composed;
+    };
+    return {
+      totalFrames,
+      width: settings.width,
+      height: settings.height,
+      renderFrame,
+      close,
+    };
+  } catch (error) {
+    close();
+    throw error;
   }
 }
 
-async function cropFramesToVisibleArea(
-  frames: Blob[],
-  width: number,
-  height: number,
-  background: string,
+function includeBounds(union: PixelBounds | null, bounds: PixelBounds | null) {
+  if (!bounds) return union;
+  if (!union) return bounds;
+  return {
+    left: Math.min(union.left, bounds.left),
+    top: Math.min(union.top, bounds.top),
+    right: Math.max(union.right, bounds.right),
+    bottom: Math.max(union.bottom, bounds.bottom),
+  };
+}
+
+async function calculateAdaptiveCrop(
+  session: RenderSession,
   signal: AbortSignal,
+  report: (progress: BrowserExportProgress) => void,
 ) {
-  const decoded: ImageBitmap[] = [];
   let union: PixelBounds | null = null;
-  try {
-    for (const frame of frames) {
-      cancelled(signal);
-      const bitmap = await createImageBitmap(frame);
-      decoded.push(bitmap);
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext("2d", { willReadFrequently: true })!;
-      context.drawImage(bitmap, 0, 0);
-      const bounds = adaptiveAlphaBounds(context.getImageData(0, 0, width, height).data, width, height);
-      if (bounds) union = union
-        ? {
-            left: Math.min(union.left, bounds.left),
-            top: Math.min(union.top, bounds.top),
-            right: Math.max(union.right, bounds.right),
-            bottom: Math.max(union.bottom, bounds.bottom),
-          }
-        : bounds;
-    }
-    if (!union) return { frames, width, height };
-    // Preserve a small safety edge around the perceptually visible glow.
-    const left = Math.max(0, union.left - ADAPTIVE_SAFETY_PADDING);
-    const top = Math.max(0, union.top - ADAPTIVE_SAFETY_PADDING);
-    const right = Math.min(width - 1, union.right + ADAPTIVE_SAFETY_PADDING);
-    const bottom = Math.min(height - 1, union.bottom + ADAPTIVE_SAFETY_PADDING);
-    const cropWidth = right - left + 1;
-    const cropHeight = bottom - top + 1;
-    const cropped: Blob[] = [];
-    for (const bitmap of decoded) {
-      cancelled(signal);
-      const canvas = document.createElement("canvas");
-      canvas.width = cropWidth;
-      canvas.height = cropHeight;
-      const context = canvas.getContext("2d", { alpha: true })!;
-      if (background !== "transparent") {
-        context.fillStyle = background;
-        context.fillRect(0, 0, cropWidth, cropHeight);
-      }
-      context.drawImage(bitmap, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
-      cropped.push(await wait(canvasToBlob(canvas), signal));
-    }
-    return { frames: cropped, width: cropWidth, height: cropHeight };
-  } finally {
-    decoded.forEach((bitmap) => bitmap.close());
+  for (let index = 0; index < session.totalFrames; index += 1) {
+    cancelled(signal);
+    const canvas = await session.renderFrame(index);
+    const context = canvas.getContext("2d", { willReadFrequently: true })!;
+    union = includeBounds(
+      union,
+      adaptiveAlphaBounds(
+        context.getImageData(0, 0, session.width, session.height).data,
+        session.width,
+        session.height,
+      ),
+    );
+    report({
+      stage: "Calculating Visible Area",
+      frame: index + 1,
+      totalFrames: session.totalFrames,
+      progress: ((index + 1) / session.totalFrames) * 35,
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
   }
+  if (!union) return { left: 0, top: 0, width: session.width, height: session.height };
+  // Preserve a small safety edge around the perceptually visible glow.
+  const left = Math.max(0, union.left - ADAPTIVE_SAFETY_PADDING);
+  const top = Math.max(0, union.top - ADAPTIVE_SAFETY_PADDING);
+  const right = Math.min(session.width - 1, union.right + ADAPTIVE_SAFETY_PADDING);
+  const bottom = Math.min(session.height - 1, union.bottom + ADAPTIVE_SAFETY_PADDING);
+  return { left, top, width: right - left + 1, height: bottom - top + 1 };
 }
 
 async function loadEncoder(format: BrowserExportFormat, signal: AbortSignal) {
@@ -421,137 +418,149 @@ export async function exportInBrowser(
   activeControllers.set(format, controller);
   const signal = controller.signal;
   let ffmpeg: FFmpeg | null = null;
+  let session: RenderSession | null = null;
   try {
-    let frames = await renderFrames(settings, signal, report);
-    if (settings.adaptiveCanvas) {
-      report({ stage: "Calculating Visible Area", frame: frames.length, totalFrames: frames.length, progress: 73 });
-      frames = (await cropFramesToVisibleArea(
-        frames,
-        settings.width,
-        settings.height,
-        settings.background,
-        signal,
-      )).frames;
+    session = await createRenderSession(settings, signal);
+    const totalFrames = session.totalFrames;
+    const crop = settings.adaptiveCanvas
+      ? await calculateAdaptiveCrop(session, signal, report)
+      : { left: 0, top: 0, width: session.width, height: session.height };
+    const outputCanvas = document.createElement("canvas");
+    outputCanvas.width = crop.width;
+    outputCanvas.height = crop.height;
+    const outputContext = outputCanvas.getContext("2d", { alpha: true })!;
+    const apng = format === "apng"
+      ? new FullFrameApngBuilder(totalFrames, settings.fps)
+      : null;
+    if (format === "mov") {
+      report({
+        stage: "Loading Encoder",
+        frame: 0,
+        totalFrames,
+        progress: settings.adaptiveCanvas ? 36 : 1,
+      });
+      ffmpeg = await loadEncoder(format, signal);
     }
-    if (settings.keepFrames) {
-      report({ stage: "Packaging PNG Sequence", frame: frames.length, totalFrames: frames.length, progress: 73 });
-      const entries: Record<string, Uint8Array> = {};
-      for (let index = 0; index < frames.length; index += 1)
-        entries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await frames[index].arrayBuffer());
-      const archive = zipSync(entries, { level: 0 });
-      download(new Blob([archive as BlobPart], { type: "application/zip" }), `OriginKit-${settings.componentName}-${Date.now()}-png-sequence.zip`);
-    }
-    if (format === "apng") {
-      report({ stage: "Encoding Full Frames", frame: frames.length, totalFrames: frames.length, progress: 85 });
-      const bytes = await buildFullFrameApng(frames, settings.fps);
-      const outputName = `OriginKit-${settings.componentName}-${Date.now()}.png`;
-      download(new Blob([bytes as BlobPart], { type: "image/png" }), outputName);
-      return { outputName, frames: frames.length };
-    }
-    report({
-      stage: "Loading Encoder",
-      frame: frames.length,
-      totalFrames: frames.length,
-      progress: 74,
-    });
-    ffmpeg = await loadEncoder(format, signal);
-    const names = frames.map(
-      (_, index) => `frame_${String(index).padStart(5, "0")}.png`,
-    );
-    for (let index = 0; index < frames.length; index += 1) {
+    const sequenceEntries: Record<string, Uint8Array> | null = settings.keepFrames ? {} : null;
+    const renderProgressStart = settings.adaptiveCanvas ? 35 : 0;
+    for (let index = 0; index < totalFrames; index += 1) {
       cancelled(signal);
-      const bytes = new Uint8Array(await frames[index].arrayBuffer());
-      if (format === "mov" && settings.pngCompression) {
-        const rawName = `raw_${String(index).padStart(5, "0")}.png`;
-        await wait(ffmpeg.writeFile(rawName, bytes), signal);
-        const compressed = await wait(
-          ffmpeg.exec([
-            "-y",
-            "-i",
-            rawName,
-            "-frames:v",
-            "1",
-            "-compression_level",
-            "9",
-            "-pred",
-            "mixed",
-            names[index],
-          ]),
-          signal,
-        );
-        await ffmpeg.deleteFile(rawName);
-        if (compressed !== 0)
-          throw new Error(`第 ${index + 1} 帧 PNG 压缩失败`);
-      } else {
-        await wait(ffmpeg.writeFile(names[index], bytes), signal);
+      const source = await session.renderFrame(index);
+      outputContext.clearRect(0, 0, crop.width, crop.height);
+      if (settings.background !== "transparent") {
+        outputContext.fillStyle = settings.background;
+        outputContext.fillRect(0, 0, crop.width, crop.height);
+      }
+      outputContext.drawImage(
+        source,
+        crop.left,
+        crop.top,
+        crop.width,
+        crop.height,
+        0,
+        0,
+        crop.width,
+        crop.height,
+      );
+      const blob = await wait(canvasToBlob(outputCanvas), signal);
+      if (sequenceEntries) {
+        sequenceEntries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await blob.arrayBuffer());
+      }
+      if (apng) {
+        await apng.addFrame(blob);
+      } else if (ffmpeg) {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const frameName = `frame_${String(index).padStart(5, "0")}.png`;
+        if (settings.pngCompression) {
+          const rawName = `raw_${String(index).padStart(5, "0")}.png`;
+          await wait(ffmpeg.writeFile(rawName, bytes), signal);
+          const compressed = await wait(
+            ffmpeg.exec([
+              "-y",
+              "-i",
+              rawName,
+              "-frames:v",
+              "1",
+              "-compression_level",
+              "9",
+              "-pred",
+              "mixed",
+              frameName,
+            ]),
+            signal,
+          );
+          await ffmpeg.deleteFile(rawName);
+          if (compressed !== 0)
+            throw new Error(`第 ${index + 1} 帧 PNG 压缩失败`);
+        } else {
+          await wait(ffmpeg.writeFile(frameName, bytes), signal);
+        }
       }
       report({
         stage:
-          format === "mov" && settings.pngCompression
+          format === "apng"
+            ? "Encoding Full Frames"
+            : settings.pngCompression
             ? "Compressing PNG Frames"
             : "Preparing Encoder",
         frame: index + 1,
-        totalFrames: frames.length,
-        progress: 74 + ((index + 1) / frames.length) * 10,
+        totalFrames,
+        progress: renderProgressStart + ((index + 1) / totalFrames) * (84 - renderProgressStart),
       });
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+    if (sequenceEntries) {
+      report({ stage: "Packaging PNG Sequence", frame: totalFrames, totalFrames, progress: 84 });
+      const archive = zipSync(sequenceEntries, { level: 0 });
+      download(new Blob([archive as BlobPart], { type: "application/zip" }), `OriginKit-${settings.componentName}-${Date.now()}-png-sequence.zip`);
+    }
+    if (apng) {
+      const outputName = `OriginKit-${settings.componentName}-${Date.now()}.png`;
+      download(apng.finish(), outputName);
+      return { outputName, frames: totalFrames };
     }
     const stamp = Date.now();
-    const outputName =
-      format === "mov"
-        ? `OriginKit-${settings.componentName}-${stamp}-prores4444xq.mov`
-        : `OriginKit-${settings.componentName}-${stamp}.png`;
-    const args =
-      format === "mov"
-        ? [
-            "-framerate",
-            String(settings.fps),
-            "-i",
-            "frame_%05d.png",
-            "-c:v",
-            "prores_ks",
-            "-profile:v",
-            "5",
-            "-bits_per_mb",
-            "8000",
-            "-pix_fmt",
-            "yuva444p10le",
-            "-alpha_bits",
-            "16",
-            "-vendor",
-            "apl0",
-            outputName,
-          ]
-        : [
-            "-framerate",
-            String(settings.fps),
-            "-i",
-            "frame_%05d.png",
-            "-plays",
-            "0",
-            ...(settings.pngCompression ? ["-pred", "mixed"] : []),
-            "-f",
-            "apng",
-            outputName,
-          ];
+    const outputName = `OriginKit-${settings.componentName}-${stamp}-prores4444xq.mov`;
+    const args = [
+      "-framerate",
+      String(settings.fps),
+      "-i",
+      "frame_%05d.png",
+      "-c:v",
+      "prores_ks",
+      "-profile:v",
+      "5",
+      "-bits_per_mb",
+      "8000",
+      "-pix_fmt",
+      "yuva444p10le",
+      "-alpha_bits",
+      "16",
+      "-vendor",
+      "apl0",
+      outputName,
+    ];
     report({
-      stage: format === "mov" ? "Encoding ProRes" : "Encoding APNG",
-      frame: frames.length,
-      totalFrames: frames.length,
+      stage: "Encoding ProRes",
+      frame: totalFrames,
+      totalFrames,
       progress: 85,
     });
+    if (!ffmpeg) throw new Error("MOV 编码器没有正确加载");
     const exitCode = await wait(ffmpeg.exec(args), signal, 10 * 60_000);
     if (exitCode !== 0) throw new Error(`浏览器编码失败，错误码 ${exitCode}`);
     const output = await wait(ffmpeg.readFile(outputName), signal);
     if (typeof output === "string") throw new Error("编码器返回了无效文件");
-    const bytes = format === "mov" ? appleVendor(output) : output;
+    const bytes = appleVendor(output);
     download(
       new Blob([bytes as BlobPart], {
-        type: format === "mov" ? "video/quicktime" : "image/png",
+        type: "video/quicktime",
       }),
       outputName,
     );
-    return { outputName, frames: frames.length };
+    return { outputName, frames: totalFrames };
   } finally {
+    session?.close();
     ffmpeg?.terminate();
     activeEncoders.delete(format);
     activeControllers.delete(format);

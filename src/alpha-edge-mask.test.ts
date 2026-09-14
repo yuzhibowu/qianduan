@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alphaEdgeMaskPixels } from "./alpha-edge-mask";
+import { alphaEdgeMaskPixels, alphaGroupEnvelopePixels, alphaIslandCount } from "./alpha-edge-mask";
 
 function solid(width: number, height: number) {
   const pixels = new Uint8ClampedArray(width * height * 4);
@@ -34,5 +34,19 @@ describe("Euclidean Alpha edge mask", () => {
     const mask = alphaEdgeMaskPixels(pixels, 5, 5, 2);
     expect(alphaAt(mask, 5, 2, 0)).toBeGreaterThan(0);
     expect(alphaAt(mask, 5, 2, 0)).toBeLessThan(255);
+  });
+
+  it("wraps disconnected Alpha islands in one filled outer envelope", () => {
+    const width = 20;
+    const pixels = new Uint8ClampedArray(width * 10 * 4);
+    for (let y = 2; y <= 7; y += 1) {
+      for (let x = 1; x <= 4; x += 1) pixels[(y * width + x) * 4 + 3] = 255;
+      for (let x = 15; x <= 18; x += 1) pixels[(y * width + x) * 4 + 3] = 255;
+    }
+    expect(alphaIslandCount(pixels, width, 10)).toBe(2);
+    const envelope = alphaGroupEnvelopePixels(pixels, width, 10);
+    expect(alphaIslandCount(envelope, width, 10)).toBe(1);
+    expect(alphaAt(envelope, width, 10, 5)).toBe(255);
+    expect(alphaAt(envelope, width, 0, 0)).toBe(0);
   });
 });

@@ -53,6 +53,12 @@ import {
   shinyGraphicKind,
   type ShinyGraphic,
 } from "./shiny-graphic";
+import {
+  dimensionsForExportPreset,
+  presetForExportDimensions,
+  type ExportAspect,
+  type ExportResolutionPreset,
+} from "./export-resolution";
 
 type ColorTarget = "keynote" | "freeform";
 type ShinyContentMode = "text" | "graphic";
@@ -566,7 +572,10 @@ export default function App() {
   const [width, setWidth] = useState(exportWidth);
   const [height, setHeight] = useState(exportHeight);
   const [fps, setFps] = useState(queryFps);
-  const [aspectRatio, setAspectRatio] = useState<"16:9" | "1:1" | "adaptive">("adaptive");
+  const [aspectRatio, setAspectRatio] = useState<ExportAspect>("adaptive");
+  const [resolutionPreset, setResolutionPreset] = useState<ExportResolutionPreset | null>(
+    presetForExportDimensions(exportWidth, exportHeight),
+  );
   const [duration, setDuration] = useState(queryDuration);
   const [delay, setDelay] = useState(0);
   const [background, setBackground] = useState("transparent");
@@ -1081,26 +1090,27 @@ export default function App() {
   }, [playing, loop, duration]);
 
   const boundedRotationRate = Math.min(3, Math.max(0.5, rotationRate));
-  const setRatio = (ratio: "16:9" | "1:1" | "adaptive") => {
+  const setRatio = (ratio: ExportAspect) => {
     setAspectRatio(ratio);
-    setHeight(
-      ratio === "1:1"
-        ? width
-        : ratio === "adaptive"
-          ? height
-          : Math.round((width * 9) / 16),
-    );
+    if (resolutionPreset) {
+      const dimensions = dimensionsForExportPreset(resolutionPreset, ratio);
+      setWidth(dimensions.width);
+      setHeight(dimensions.height);
+      return;
+    }
+    if (ratio === "1:1") {
+      const edge = Math.min(width, height);
+      setWidth(edge);
+      setHeight(edge);
+    } else if (ratio === "16:9") {
+      setHeight(Math.round((width * 9) / 16));
+    }
   };
-  const setResolution = (wide: number, tall: number) => {
-    const nextWidth = aspectRatio === "1:1" ? tall : wide;
-    setWidth(nextWidth);
-    setHeight(
-      aspectRatio === "1:1"
-        ? tall
-        : aspectRatio === "adaptive"
-          ? tall
-          : tall,
-    );
+  const setResolution = (preset: ExportResolutionPreset) => {
+    const dimensions = dimensionsForExportPreset(preset, aspectRatio);
+    setResolutionPreset(preset);
+    setWidth(dimensions.width);
+    setHeight(dimensions.height);
   };
   const chooseMaterial = (preset: MaterialPresetId) =>
     updateAppearance((current) => ({
@@ -2289,6 +2299,32 @@ export default function App() {
           </section>
           <section className="export-params">
             <h2>导出参数</h2>
+            <div className="opts four">
+              <button
+                className={`opt ${resolutionPreset === "720p" ? "active" : ""}`}
+                onClick={() => setResolution("720p")}
+              >
+                720P
+              </button>
+              <button
+                className={`opt ${resolutionPreset === "1080p" ? "active" : ""}`}
+                onClick={() => setResolution("1080p")}
+              >
+                1080P
+              </button>
+              <button
+                className={`opt ${resolutionPreset === "2k" ? "active" : ""}`}
+                onClick={() => setResolution("2k")}
+              >
+                2K
+              </button>
+              <button
+                className={`opt ${resolutionPreset === "4k" ? "active" : ""}`}
+                onClick={() => setResolution("4k")}
+              >
+                4K
+              </button>
+            </div>
             <div className="opts">
               <button
                 className={`opt ${aspectRatio === "16:9" ? "active" : ""}`}
@@ -2309,39 +2345,16 @@ export default function App() {
                 自适应
               </button>
             </div>
-            <div className="opts four">
-              <button
-                className={`opt ${width === (aspectRatio === "1:1" ? 720 : 1280) ? "active" : ""}`}
-                onClick={() => setResolution(1280, 720)}
-              >
-                720P
-              </button>
-              <button
-                className={`opt ${width === (aspectRatio === "1:1" ? 1080 : 1920) ? "active" : ""}`}
-                onClick={() => setResolution(1920, 1080)}
-              >
-                1080P
-              </button>
-              <button
-                className={`opt ${width === (aspectRatio === "1:1" ? 1440 : 2560) ? "active" : ""}`}
-                onClick={() => setResolution(2560, 1440)}
-              >
-                2K
-              </button>
-              <button
-                className={`opt ${width === (aspectRatio === "1:1" ? 2160 : 3840) ? "active" : ""}`}
-                onClick={() => setResolution(3840, 2160)}
-              >
-                4K
-              </button>
-            </div>
             <div className="field-row">
               <label className="field">
                 宽度
                 <input
                   type="number"
                   value={width}
-                  onChange={(event) => setWidth(Number(event.target.value))}
+                  onChange={(event) => {
+                    setResolutionPreset(null);
+                    setWidth(Number(event.target.value));
+                  }}
                 />
               </label>
               <label className="field">
@@ -2349,7 +2362,10 @@ export default function App() {
                 <input
                   type="number"
                   value={height}
-                  onChange={(event) => setHeight(Number(event.target.value))}
+                  onChange={(event) => {
+                    setResolutionPreset(null);
+                    setHeight(Number(event.target.value));
+                  }}
                 />
               </label>
             </div>

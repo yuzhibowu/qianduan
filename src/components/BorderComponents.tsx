@@ -11,7 +11,7 @@ import type { InteractionSample } from "../interaction";
 import type { FrostedTypeBandSettings } from "./FrostedTypeBandRenderer";
 import type { PaperImageSettings } from "./PaperImageRenderer";
 import type { BorderIllustration } from "../border-illustration";
-import { alphaEdgeMaskPixels } from "../alpha-edge-mask";
+import { alphaEdgeMaskPixels, alphaGroupEnvelopePixels, alphaIslandCount } from "../alpha-edge-mask";
 import { angleAtPerimeterPhase, perimeterAngleLut } from "../alpha-perimeter";
 import { neonSegmentDuration } from "../border-timing";
 import type { ShinyGraphic } from "../shiny-graphic";
@@ -413,33 +413,48 @@ function useIllustrationEdgeMasks(
         analysisHeight,
       );
       const pixels = analysisContext.getImageData(0, 0, analysisWidth, analysisHeight).data;
-      const angles = perimeterAngleLut(pixels, analysisWidth, analysisHeight);
-      if (!angles.length) throw new Error("PNG 中没有可用的主体闭合轮廓");
       const width = Math.max(1, size.width);
       const pathUnitsPerPixel = analysisWidth / width;
-      const next = await Promise.all(widths.map(async (edgeWidth) => {
+      // A disconnected logo or text image is one background illustration, not
+      // a collection of independently glowing glyphs. Wrap all Alpha islands in
+      // one exterior envelope while leaving a true single-contour asset intact.
+      const contourPixels = alphaIslandCount(pixels, analysisWidth, analysisHeight) > 1
+        ? alphaGroupEnvelopePixels(pixels, analysisWidth, analysisHeight)
+        : pixels;
+      const makeMaskUrl = async (
+        sourcePixels: Uint8ClampedArray,
+        sourceWidth: number,
+        sourceHeight: number,
+        edgeWidth: number,
+      ) => {
         const maskCanvas = document.createElement("canvas");
-        maskCanvas.width = analysisWidth;
-        maskCanvas.height = analysisHeight;
+        maskCanvas.width = sourceWidth;
+        maskCanvas.height = sourceHeight;
         const maskContext = maskCanvas.getContext("2d");
         if (!maskContext) throw new Error("无法生成 PNG 的等距发光边缘");
         maskContext.putImageData(new ImageData(
           alphaEdgeMaskPixels(
-            pixels,
-            analysisWidth,
-            analysisHeight,
+            sourcePixels,
+            sourceWidth,
+            sourceHeight,
             edgeWidth * pathUnitsPerPixel,
           ),
-          analysisWidth,
-          analysisHeight,
+          sourceWidth,
+          sourceHeight,
         ), 0, 0);
         const blob = await new Promise<Blob>((resolve, reject) => {
           maskCanvas.toBlob((result) => result ? resolve(result) : reject(new Error("无法编码发光边缘遮罩")), "image/png");
         });
-        return URL.createObjectURL(blob);
-      }));
-      objectUrls = next;
-      if (live) setGeometry({ urls: next, angles });
+        const url = URL.createObjectURL(blob);
+        objectUrls.push(url);
+        return url;
+      };
+      const angles = perimeterAngleLut(contourPixels, analysisWidth, analysisHeight);
+      if (!angles.length) throw new Error("PNG 中没有可用的主体闭合轮廓");
+      const urls = await Promise.all(widths.map((edgeWidth) =>
+        makeMaskUrl(contourPixels, analysisWidth, analysisHeight, edgeWidth),
+      ));
+      if (live) setGeometry({ urls, angles });
     })().catch((error) => {
       console.error(error);
       if (live) setGeometry(null);
@@ -543,6 +558,7 @@ function rgba(color: string, alpha: number) {
     value = parseInt(hex.slice(0, 6), 16);
   return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
 }
+
 function perimeterPoint(phase: number, w: number, h: number) {
   const p = (((phase % 1) + 1) % 1) * 2 * (w + h);
   return p < w
@@ -661,7 +677,6 @@ export function NeonBorder({
       ...layers.map((layer) => borderWidth + glowAmount * 36 * layer.reach),
     ],
     contourGeometry = useIllustrationEdgeMasks(borderIllustration, size, contourWidths),
-    contourMasks = contourGeometry?.urls,
     makeArc = (offset: number) =>
       neonArc(
         phase + offset + clamp(neonPosition, -100, 100) / 100,
@@ -688,6 +703,8 @@ export function NeonBorder({
       }}
     />
   );
+  const contourEdge = (maskIndex: number) =>
+    contourGeometry ? maskedEdge(contourGeometry.urls[maskIndex]) : null;
   const edge = (padding: number, inset = 0) => (
     <div
       style={{
@@ -719,7 +736,7 @@ export function NeonBorder({
       {glowAmount > 0 &&
         layers.map((layer, i) => {
           const reach = borderWidth + glowAmount * 36 * layer.reach;
-          if (contourMasks) {
+          if (contourGeometry) {
             return (
               <div
                 key={i}
@@ -732,7 +749,7 @@ export function NeonBorder({
                   WebkitFilter: `blur(${layer.blur}px)`,
                 }}
               >
-                {maskedEdge(contourMasks[i + 1])}
+                {contourEdge(i + 1)}
               </div>
             );
           }
@@ -765,7 +782,7 @@ export function NeonBorder({
             mixBlendMode: "plus-lighter",
           }}
         >
-          {contourMasks ? maskedEdge(contourMasks[0]) : edge(borderWidth)}
+          {contourGeometry ? contourEdge(0) : edge(borderWidth)}
         </div>
       ))}
     </div>
