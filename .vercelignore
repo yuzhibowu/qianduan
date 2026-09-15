@@ -1,0 +1,7 @@
+node_modules
+artifacts
+native-helper/.build
+dist
+.git
+*.dmg
+*.zip
