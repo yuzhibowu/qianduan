@@ -103,26 +103,21 @@ private final class ExportJob: @unchecked Sendable {
     self.fps = fps; self.expectedFrames = expectedFrames
   }
 
-  func append(_ frame: Data, x: UInt32 = 0, y: UInt32 = 0, canvasWidth: UInt32? = nil, canvasHeight: UInt32? = nil, blendOver: Bool = false) throws {
+  func append(_ frame: Data) throws {
     guard frames < expectedFrames else { throw HelperError.message("帧数超出预期") }
     if format == "mov" { try input?.write(contentsOf: frame) }
     else {
       let parsed = try inspectPng(frame)
       let w = parsed.ihdr.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
       let h = parsed.ihdr.dropFirst(4).prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-      let fullWidth = canvasWidth ?? w
-      let fullHeight = canvasHeight ?? h
       if frames == 0 {
-        width = fullWidth; height = fullHeight
-        var header = parsed.ihdr
-        header.replaceSubrange(0..<4, with: u32(fullWidth))
-        header.replaceSubrange(4..<8, with: u32(fullHeight))
-        try output?.write(contentsOf: pngChunk("IHDR", header))
+        width = w; height = h
+        try output?.write(contentsOf: pngChunk("IHDR", parsed.ihdr))
         for (type, payload) in parsed.ancillary { try output?.write(contentsOf: pngChunk(type, payload)) }
         try output?.write(contentsOf: pngChunk("acTL", u32(UInt32(expectedFrames)) + u32(0)))
-      } else if fullWidth != width || fullHeight != height { throw HelperError.message("PNG 动图的画布尺寸必须一致") }
+      } else if w != width || h != height { throw HelperError.message("PNG 动图的每帧尺寸必须一致") }
       var control = Data()
-      [u32(sequence), u32(w), u32(h), u32(x), u32(y), u16(1), u16(UInt16(fps)), Data([0, blendOver ? 1 : 0])].forEach { control.append($0) }
+      [u32(sequence), u32(w), u32(h), u32(0), u32(0), u16(1), u16(UInt16(fps)), Data([0, 0])].forEach { control.append($0) }
       sequence += 1
       try output?.write(contentsOf: pngChunk("fcTL", control))
       if frames == 0 { for payload in parsed.imageData { try output?.write(contentsOf: pngChunk("IDAT", payload)) } }
@@ -208,7 +203,7 @@ private final class HelperServer: @unchecked Sendable {
     return [
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, X-Frame-X, X-Frame-Y, X-Canvas-Width, X-Canvas-Height, X-Frame-Blend",
+      "Access-Control-Allow-Headers": "Content-Type",
       "Access-Control-Allow-Private-Network": "true",
       "Vary": "Origin",
     ]
@@ -297,14 +292,7 @@ private final class HelperServer: @unchecked Sendable {
       }
       let pieces = request.path.split(separator: "/").map(String.init)
       if pieces.count == 3, pieces[0] == "v1", let job = jobs[pieces[2]] {
-        if request.method == "POST" && pieces[1] == "frame" {
-          let x = UInt32(request.headers["x-frame-x"] ?? "0") ?? 0
-          let y = UInt32(request.headers["x-frame-y"] ?? "0") ?? 0
-          let canvasWidth = UInt32(request.headers["x-canvas-width"] ?? "")
-          let canvasHeight = UInt32(request.headers["x-canvas-height"] ?? "")
-          try job.append(request.body, x: x, y: y, canvasWidth: canvasWidth, canvasHeight: canvasHeight, blendOver: request.headers["x-frame-blend"] == "over")
-          return send(connection, headers: headers, body: json(["frame": job.frames]))
-        }
+        if request.method == "POST" && pieces[1] == "frame" { try job.append(request.body); return send(connection, headers: headers, body: json(["frame": job.frames])) }
         if request.method == "POST" && pieces[1] == "finish" { try job.finish(); return send(connection, headers: headers, body: json(["outputName": job.outputName, "downloadUrl": "http://127.0.0.1:\(port.rawValue)/v1/download/\(job.id)"])) }
         if request.method == "POST" && pieces[1] == "cancel" { job.cancel(); jobs.removeValue(forKey: job.id); return send(connection, headers: headers, body: json(["cancelled": true])) }
         if request.method == "GET" && pieces[1] == "download" {

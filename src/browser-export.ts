@@ -141,65 +141,6 @@ function canvasToBlob(canvas: HTMLCanvasElement) {
   );
 }
 
-type SmartApngFrame = {
-  blob: Blob;
-  pixels: ImageData;
-  region: { x: number; y: number; canvasWidth: number; canvasHeight: number; blend: "source" | "over" };
-};
-
-async function compressedApngFrame(
-  canvas: HTMLCanvasElement,
-  context: CanvasRenderingContext2D,
-  previous: ImageData | null,
-  forceFull: boolean,
-): Promise<SmartApngFrame> {
-  const current = context.getImageData(0, 0, canvas.width, canvas.height);
-  if (!previous || forceFull) {
-    return {
-      blob: await canvasToBlob(canvas),
-      pixels: current,
-      region: { x: 0, y: 0, canvasWidth: canvas.width, canvasHeight: canvas.height, blend: "source" as const },
-    };
-  }
-  let left = canvas.width;
-  let top = canvas.height;
-  let right = -1;
-  let bottom = -1;
-  for (let y = 0; y < canvas.height; y += 1) {
-    for (let x = 0; x < canvas.width; x += 1) {
-      const offset = (y * canvas.width + x) * 4;
-      if (
-        current.data[offset] !== previous.data[offset]
-        || current.data[offset + 1] !== previous.data[offset + 1]
-        || current.data[offset + 2] !== previous.data[offset + 2]
-        || current.data[offset + 3] !== previous.data[offset + 3]
-      ) {
-        left = Math.min(left, x); top = Math.min(top, y);
-        right = Math.max(right, x); bottom = Math.max(bottom, y);
-      }
-    }
-  }
-  if (right < left || bottom < top) {
-    const idle = document.createElement("canvas");
-    idle.width = 1; idle.height = 1;
-    return {
-      blob: await canvasToBlob(idle),
-      pixels: current,
-      region: { x: 0, y: 0, canvasWidth: canvas.width, canvasHeight: canvas.height, blend: "over" as const },
-    };
-  }
-  const width = right - left + 1;
-  const height = bottom - top + 1;
-  const delta = document.createElement("canvas");
-  delta.width = width; delta.height = height;
-  delta.getContext("2d", { alpha: true })!.putImageData(context.getImageData(left, top, width, height), 0, 0);
-  return {
-    blob: await canvasToBlob(delta),
-    pixels: current,
-    region: { x: left, y: top, canvasWidth: canvas.width, canvasHeight: canvas.height, blend: "source" as const },
-  };
-}
-
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -564,7 +505,6 @@ export async function exportInBrowser(
       }
     }
     const sequenceEntries: Record<string, Uint8Array> | null = settings.keepFrames ? {} : null;
-    let previousApngPixels: ImageData | null = null;
     const renderProgressStart = settings.adaptiveCanvas ? 35 : 0;
     for (let index = 0; index < totalFrames; index += 1) {
       cancelled(signal);
@@ -585,19 +525,14 @@ export async function exportInBrowser(
         crop.width,
         crop.height,
       );
-      const fullBlob = await wait(canvasToBlob(outputCanvas), signal);
+      const blob = await wait(canvasToBlob(outputCanvas), signal);
       if (sequenceEntries) {
-        sequenceEntries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await fullBlob.arrayBuffer());
+        sequenceEntries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await blob.arrayBuffer());
       }
-      const smartFrame: SmartApngFrame | null = format === "apng" && settings.pngCompression
-        ? await compressedApngFrame(outputCanvas, outputContext, previousApngPixels, index % 120 === 0)
-        : null;
-      if (smartFrame) previousApngPixels = smartFrame.pixels;
-      const blob = smartFrame?.blob ?? fullBlob;
       if (nativeSession) {
-        await appendNativeFrame(nativeSession, blob, signal, smartFrame?.region);
+        await appendNativeFrame(nativeSession, blob, signal);
       } else if (apng) {
-        await apng.addFrame(blob, smartFrame?.region);
+        await apng.addFrame(blob);
       } else if (ffmpeg) {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         const frameName = `frame_${String(index).padStart(5, "0")}.png`;
