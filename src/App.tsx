@@ -2556,7 +2556,7 @@ export default function App() {
                 <div className="helper-install-actions">
                   <a
                     className="btn"
-                    href="https://github.com/yuzhibowu/qianduan/releases/latest/download/BingBing-Export-Helper-macOS.dmg"
+                    href="https://github.com/yuzhibowu/qianduan/releases/latest/download/BingBing-Export-Helper-macOS-universal-AppleSilicon-Intel.dmg"
                     onClick={() => setHelperPrompt((current) => current ? { ...current, status: "下载并打开助手后，点击“重新检测”。" } : current)}
                   >
                     安装高速助手
