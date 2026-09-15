@@ -372,7 +372,12 @@ function OverlayIllustrations({
   )) ?? null;
 }
 
-function useIllustrationEdgeMasks(
+/**
+ * Shared geometry bridge for every border-style component. The animation and
+ * colour source remain component-specific; this hook only turns the imported
+ * background PNG into the one edge geometry all border renderers must follow.
+ */
+function useBackgroundIllustrationEdgeMasks(
   value: BorderIllustration | undefined,
   size: Size,
   widths: number[],
@@ -469,6 +474,19 @@ function useIllustrationEdgeMasks(
   return geometry;
 }
 
+function alphaMaskStyle(maskUrl: string): CSSProperties {
+  return {
+    WebkitMaskImage: `url("${maskUrl}")`,
+    WebkitMaskPosition: "center",
+    WebkitMaskRepeat: "no-repeat",
+    WebkitMaskSize: "100% 100%",
+    maskImage: `url("${maskUrl}")`,
+    maskPosition: "center",
+    maskRepeat: "no-repeat",
+    maskSize: "100% 100%",
+  };
+}
+
 export function GlowBorder({
   baseColor,
   accentColor,
@@ -489,7 +507,8 @@ export function GlowBorder({
     rotorSize = Math.ceil(Math.hypot(size.width, size.height)) + 24,
     radius =
       ((clamp(rounded, 0, 100) / 100) * Math.min(size.width, size.height)) / 2,
-    angle = (timeSeconds * clamp(speed, 0, 100) * 3.6) % 360;
+    angle = (timeSeconds * clamp(speed, 0, 100) * 3.6) % 360,
+    contourGeometry = useBackgroundIllustrationEdgeMasks(borderIllustration, size, [borderWidth]);
   const tailColor = `${baseColor}66`,
     resting = "rgba(255,255,255,0.04)",
     arc = 0.6 * 180 * 0.94,
@@ -512,7 +531,13 @@ export function GlowBorder({
       >
         <Illustration value={borderIllustration} timeSeconds={timeSeconds} />
         <div
-          style={{
+          style={contourGeometry ? {
+            position: "absolute",
+            inset: 0,
+            overflow: "hidden",
+            pointerEvents: "none",
+            ...alphaMaskStyle(contourGeometry.urls[0]),
+          } : {
             position: "relative",
             width: "100%",
             height: "100%",
@@ -676,7 +701,7 @@ export function NeonBorder({
       borderWidth,
       ...layers.map((layer) => borderWidth + glowAmount * 36 * layer.reach),
     ],
-    contourGeometry = useIllustrationEdgeMasks(borderIllustration, size, contourWidths),
+    contourGeometry = useBackgroundIllustrationEdgeMasks(borderIllustration, size, contourWidths),
     makeArc = (offset: number) =>
       neonArc(
         phase + offset + clamp(neonPosition, -100, 100) / 100,
@@ -692,14 +717,7 @@ export function NeonBorder({
         position: "absolute",
         inset: 0,
         background: "var(--arc)",
-        WebkitMaskImage: `url("${maskUrl}")`,
-        WebkitMaskPosition: "center",
-        WebkitMaskRepeat: "no-repeat",
-        WebkitMaskSize: "100% 100%",
-        maskImage: `url("${maskUrl}")`,
-        maskPosition: "center",
-        maskRepeat: "no-repeat",
-        maskSize: "100% 100%",
+        ...alphaMaskStyle(maskUrl),
       }}
     />
   );
@@ -828,7 +846,43 @@ export function PulsatingBorder({
     worldWidth = size.width + spread * 2,
     worldHeight = size.height + spread * 2,
     extra = Math.min(480, Math.ceil(0.4 * Math.min(worldWidth, worldHeight))),
-    outset = spread + extra;
+    outset = spread + extra,
+    contourWidth = borderWidth + clamp(glow, 0, 100) * 0.24,
+    contourGeometry = useBackgroundIllustrationEdgeMasks(borderIllustration, size, [contourWidth]);
+  const shader = (
+    <PulsingBorder
+      colors={[baseColor, accentColor, "#379590"]}
+      colorBack="rgba(0,0,0,0)"
+      speed={0}
+      frame={timeSeconds * clamp(speed, 1, 10) * 1000}
+      roundness={rounded / 100}
+      thickness={contourGeometry ? 1 : borderWidth / 100}
+      softness={0.75}
+      intensity={0.3}
+      bloom={glow / 100}
+      spots={3}
+      spotSize={0.3}
+      pulse={0}
+      smoke={0.35}
+      smokeSize={0.63}
+      worldWidth={worldWidth}
+      worldHeight={worldHeight}
+      fit="none"
+      scale={1}
+      marginLeft={spread / worldWidth}
+      marginRight={spread / worldWidth}
+      marginTop={spread / worldHeight}
+      marginBottom={spread / worldHeight}
+      style={{
+        position: "absolute",
+        left: -outset,
+        top: -outset,
+        width: size.width + outset * 2,
+        height: size.height + outset * 2,
+        pointerEvents: "none",
+      }}
+    />
+  );
   return (
     <div className="motion-root">
       <div
@@ -836,40 +890,19 @@ export function PulsatingBorder({
         style={panelStyle(distance, background, borderAspect, canvasAspect)}
       >
         <Illustration value={borderIllustration} timeSeconds={timeSeconds} />
-        {size.width > 0 && size.height > 0 && (
-          <PulsingBorder
-            colors={[baseColor, accentColor, "#379590"]}
-            colorBack="rgba(0,0,0,0)"
-            speed={0}
-            frame={timeSeconds * clamp(speed, 1, 10) * 1000}
-            roundness={rounded / 100}
-            thickness={borderWidth / 100}
-            softness={0.75}
-            intensity={0.3}
-            bloom={glow / 100}
-            spots={3}
-            spotSize={0.3}
-            pulse={0}
-            smoke={0.35}
-            smokeSize={0.63}
-            worldWidth={worldWidth}
-            worldHeight={worldHeight}
-            fit="none"
-            scale={1}
-            marginLeft={spread / worldWidth}
-            marginRight={spread / worldWidth}
-            marginTop={spread / worldHeight}
-            marginBottom={spread / worldHeight}
+        {size.width > 0 && size.height > 0 && (contourGeometry ? (
+          <div
             style={{
               position: "absolute",
-              left: -outset,
-              top: -outset,
-              width: size.width + outset * 2,
-              height: size.height + outset * 2,
+              inset: 0,
+              overflow: "visible",
               pointerEvents: "none",
+              ...alphaMaskStyle(contourGeometry.urls[0]),
             }}
-          />
-        )}
+          >
+            {shader}
+          </div>
+        ) : shader)}
         <OverlayIllustrations values={borderOverlayIllustrations} timeSeconds={timeSeconds} onChange={onBorderOverlayChange} selectedIndex={selectedBorderOverlayIndex} frameSize={size} />
       </div>
     </div>
