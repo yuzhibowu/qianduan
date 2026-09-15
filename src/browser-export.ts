@@ -555,7 +555,7 @@ export async function exportInBrowser(
       const native = await detectNativeExporter(format, signal);
       if (native) {
         try {
-          nativeSession = await startNativeExport(format, settings.fps, outputName, settings.pngCompression, totalFrames, native.endpoint, signal);
+          nativeSession = await startNativeExport(format, settings.fps, outputName, settings.pngCompression, totalFrames, crop.width, crop.height, native.endpoint, signal);
           activeNativeSessions.set(format, nativeSession);
           report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : nativeApngStage, frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
         } catch {
@@ -592,7 +592,12 @@ export async function exportInBrowser(
         crop.width,
         crop.height,
       );
-      const fullBlob = await wait(canvasToBlob(outputCanvas), signal);
+      const nativeMovPixels = nativeSession && format === "mov"
+        ? outputContext.getImageData(0, 0, outputCanvas.width, outputCanvas.height)
+        : null;
+      const fullBlob = nativeMovPixels
+        ? new Blob([nativeMovPixels.data])
+        : await wait(canvasToBlob(outputCanvas), signal);
       if (sequenceEntries) {
         sequenceEntries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await fullBlob.arrayBuffer());
       }
@@ -602,7 +607,11 @@ export async function exportInBrowser(
       if (smartFrame) previousApngPixels = smartFrame.pixels;
       const blob = smartFrame?.blob ?? fullBlob;
       if (nativeSession) {
-        await appendNativeFrame(nativeSession, blob, signal, smartFrame?.region);
+        await appendNativeFrame(nativeSession, blob, signal, smartFrame?.region ?? (nativeMovPixels ? {
+          x: 0, y: 0, width: outputCanvas.width, height: outputCanvas.height,
+          canvasWidth: outputCanvas.width, canvasHeight: outputCanvas.height,
+          blend: "source", encoding: "rgba",
+        } : undefined));
       } else if (apng) {
         await apng.addFrame(blob, smartFrame?.region);
       } else if (ffmpeg) {

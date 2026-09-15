@@ -173,6 +173,9 @@ export function nativeExportBridge() {
         if (![24, 25, 30, 50, 60].includes(fps)) return json(response, 400, { error: "不支持的帧率" })
         const expectedFrames = Math.round(Number(input.totalFrames))
         if (expectedFrames < 1 || expectedFrames > 3600) return json(response, 400, { error: "PNG 动图帧数超出安全范围" })
+        const width = Math.round(Number(input.width))
+        const height = Math.round(Number(input.height))
+        if (width < 1 || width > 8192 || height < 1 || height > 8192) return json(response, 400, { error: "输出尺寸超出安全范围" })
         const id = randomUUID()
         const directory = await mkdtemp(resolve(tmpdir(), "origin-kit-native-export-"))
         const outputName = safeOutputName(input.outputName, format)
@@ -190,7 +193,7 @@ export function nativeExportBridge() {
         } else {
           const child = spawn("ffmpeg", [
             "-y", "-v", "error",
-            "-f", "image2pipe", "-framerate", String(fps), "-i", "pipe:0",
+            "-f", "rawvideo", "-pixel_format", "rgba", "-video_size", `${width}x${height}`, "-framerate", String(fps), "-i", "pipe:0",
             "-c:v", "prores_ks", "-profile:v", "5", "-bits_per_mb", "8000",
             "-pix_fmt", "yuva444p10le", "-alpha_bits", "16", "-vendor", "apl0", outputPath,
           ], { stdio: ["pipe", "ignore", "pipe"] })
@@ -206,7 +209,7 @@ export function nativeExportBridge() {
         const job = jobs.get(frameMatch[1])
         if (!job) return json(response, 404, { error: "本机导出任务不存在" })
         let frame = await bodyBuffer(request)
-        if (request.headers["x-frame-encoding"] === "rgba") {
+        if (job.format === "apng" && request.headers["x-frame-encoding"] === "rgba") {
           const width = Number(request.headers["x-frame-width"])
           const height = Number(request.headers["x-frame-height"])
           if (!width || !height || frame.length !== width * height * 4) throw new Error("RGBA 帧尺寸不正确")

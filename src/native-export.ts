@@ -48,13 +48,15 @@ export async function startNativeExport(
   outputName: string,
   pngCompression: boolean,
   totalFrames: number,
+  width: number,
+  height: number,
   endpoint: string,
   signal: AbortSignal,
 ) {
   const response = await fetch(`${endpoint}/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ format, fps, outputName, pngCompression, totalFrames }),
+    body: JSON.stringify({ format, fps, outputName, pngCompression, totalFrames, width, height }),
     signal,
   });
   if (!response.ok) throw new Error(await responseError(response));
