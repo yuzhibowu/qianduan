@@ -297,9 +297,7 @@ private final class HelperServer: @unchecked Sendable {
         let format = input["format"] as? String == "apng" ? "apng" : "mov"
         let fps = input["fps"] as? Int ?? 30
         let total = input["totalFrames"] as? Int ?? 0
-        let width = input["width"] as? Int ?? 0
-        let height = input["height"] as? Int ?? 0
-        guard [24, 25, 30, 50, 60].contains(fps), (1...3600).contains(total), (1...8192).contains(width), (1...8192).contains(height) else { throw HelperError.message("导出参数超出安全范围") }
+        guard [24, 25, 30, 50, 60].contains(fps), (1...3600).contains(total) else { throw HelperError.message("导出参数超出安全范围") }
         let id = UUID().uuidString
         let ext = format == "apng" ? "png" : "mov"
         let requested = (input["outputName"] as? String)?.components(separatedBy: "/").last ?? "export.\(ext)"
@@ -310,7 +308,7 @@ private final class HelperServer: @unchecked Sendable {
           guard let ffmpeg = ffmpegPath() else { throw HelperError.message("没有找到本机 FFmpeg") }
           let process = Process(); let pipe = Pipe()
           process.executableURL = URL(fileURLWithPath: ffmpeg)
-          process.arguments = ["-y", "-v", "error", "-f", "rawvideo", "-pixel_format", "rgba", "-video_size", "\(width)x\(height)", "-framerate", String(fps), "-i", "pipe:0", "-c:v", "prores_ks", "-profile:v", "5", "-bits_per_mb", "8000", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16", "-vendor", "apl0", url.path]
+          process.arguments = ["-y", "-v", "error", "-f", "image2pipe", "-framerate", String(fps), "-i", "pipe:0", "-c:v", "prores_ks", "-profile:v", "5", "-bits_per_mb", "8000", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16", "-vendor", "apl0", url.path]
           process.standardInput = pipe; process.standardError = Pipe(); try process.run()
           job.process = process; job.input = pipe.fileHandleForWriting
         } else {
@@ -329,7 +327,7 @@ private final class HelperServer: @unchecked Sendable {
           let canvasHeight = UInt32(request.headers["x-canvas-height"] ?? "")
           let frameWidth = Int(request.headers["x-frame-width"] ?? "") ?? 0
           let frameHeight = Int(request.headers["x-frame-height"] ?? "") ?? 0
-          let frame = job.format == "apng" && request.headers["x-frame-encoding"] == "rgba"
+          let frame = request.headers["x-frame-encoding"] == "rgba"
             ? try pngFromRGBA(request.body, width: frameWidth, height: frameHeight)
             : request.body
           try job.append(frame, x: x, y: y, canvasWidth: canvasWidth, canvasHeight: canvasHeight, blendOver: request.headers["x-frame-blend"] == "over")
