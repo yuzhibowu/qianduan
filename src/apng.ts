@@ -91,23 +91,32 @@ export class FullFrameApngBuilder {
     this.parts.push(...chunkParts(type, data));
   }
 
-  async addFrame(frame: Blob) {
+  async addFrame(frame: Blob, region?: { x: number; y: number; canvasWidth: number; canvasHeight: number; blend: "source" | "over" }) {
     if (this.finished) throw new Error("PNG 动图已经结束编码");
     if (this.addedFrames >= this.expectedFrames) throw new Error("PNG 动图帧数超出预期");
     const parsed = inspectPng(new Uint8Array(await frame.arrayBuffer()));
     const view = new DataView(parsed.ihdr.buffer, parsed.ihdr.byteOffset, parsed.ihdr.byteLength);
     const width = view.getUint32(0);
     const height = view.getUint32(4);
+    const canvasWidth = region?.canvasWidth ?? width;
+    const canvasHeight = region?.canvasHeight ?? height;
     if (this.addedFrames === 0) {
-      this.width = width;
-      this.height = height;
-      this.pushChunk("IHDR", parsed.ihdr);
+      this.width = canvasWidth;
+      this.height = canvasHeight;
+      const canvasHeader = parsed.ihdr.slice();
+      new DataView(canvasHeader.buffer, canvasHeader.byteOffset, canvasHeader.byteLength).setUint32(0, canvasWidth);
+      new DataView(canvasHeader.buffer, canvasHeader.byteOffset, canvasHeader.byteLength).setUint32(4, canvasHeight);
+      this.pushChunk("IHDR", canvasHeader);
       parsed.ancillary.forEach(({ type, data }) => this.pushChunk(type, data));
       this.pushChunk("acTL", join([uint32(this.expectedFrames), uint32(0)]));
-    } else if (width !== this.width || height !== this.height) {
-      throw new Error("PNG 动图的每帧尺寸必须一致");
+    } else if (canvasWidth !== this.width || canvasHeight !== this.height) {
+      throw new Error("PNG 动图的画布尺寸必须一致");
     }
-    this.pushChunk("fcTL", frameControl(this.sequence++, width, height, this.fps));
+    const control = frameControl(this.sequence++, width, height, this.fps);
+    new DataView(control.buffer, control.byteOffset, control.byteLength).setUint32(12, region?.x ?? 0);
+    new DataView(control.buffer, control.byteOffset, control.byteLength).setUint32(16, region?.y ?? 0);
+    control[25] = region?.blend === "over" ? 1 : 0;
+    this.pushChunk("fcTL", control);
     if (this.addedFrames === 0) {
       parsed.imageData.forEach((data) => this.pushChunk("IDAT", data));
     } else {

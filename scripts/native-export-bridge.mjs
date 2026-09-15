@@ -63,23 +63,28 @@ async function writeStream(stream, bytes) {
   if (!stream.write(bytes)) await new Promise((resolveDrain) => stream.once("drain", resolveDrain))
 }
 
-async function appendFullFrameApng(job, frame) {
+async function appendFullFrameApng(job, frame, region = {}) {
   if (job.frames >= job.expectedFrames) throw new Error("PNG 动图帧数超出预期")
   const parsed = inspectPng(frame)
   const width = parsed.ihdr.readUInt32BE(0)
   const height = parsed.ihdr.readUInt32BE(4)
+  const canvasWidth = Number(region.canvasWidth) || width
+  const canvasHeight = Number(region.canvasHeight) || height
   if (job.frames === 0) {
-    job.width = width
-    job.height = height
-    await writeStream(job.writer, pngChunk("IHDR", parsed.ihdr))
+    job.width = canvasWidth
+    job.height = canvasHeight
+    const header = Buffer.from(parsed.ihdr)
+    header.writeUInt32BE(canvasWidth, 0)
+    header.writeUInt32BE(canvasHeight, 4)
+    await writeStream(job.writer, pngChunk("IHDR", header))
     for (const { type, data } of parsed.ancillary) await writeStream(job.writer, pngChunk(type, data))
     await writeStream(job.writer, pngChunk("acTL", Buffer.concat([uint32(job.expectedFrames), uint32(0)])))
-  } else if (width !== job.width || height !== job.height) {
-    throw new Error("PNG 动图的每帧尺寸必须一致")
+  } else if (canvasWidth !== job.width || canvasHeight !== job.height) {
+    throw new Error("PNG 动图的画布尺寸必须一致")
   }
   const control = Buffer.concat([
-    uint32(job.sequence++), uint32(width), uint32(height), uint32(0), uint32(0),
-    uint16(1), uint16(job.fps), Buffer.from([0, 0]),
+    uint32(job.sequence++), uint32(width), uint32(height), uint32(Number(region.x) || 0), uint32(Number(region.y) || 0),
+    uint16(1), uint16(job.fps), Buffer.from([0, region.blend === "over" ? 1 : 0]),
   ])
   await writeStream(job.writer, pngChunk("fcTL", control))
   if (job.frames === 0) {
@@ -200,7 +205,11 @@ export function nativeExportBridge() {
         const job = jobs.get(frameMatch[1])
         if (!job) return json(response, 404, { error: "本机导出任务不存在" })
         const frame = await bodyBuffer(request)
-        if (job.format === "apng") await appendFullFrameApng(job, frame)
+        if (job.format === "apng") await appendFullFrameApng(job, frame, {
+          x: request.headers["x-frame-x"], y: request.headers["x-frame-y"],
+          canvasWidth: request.headers["x-canvas-width"], canvasHeight: request.headers["x-canvas-height"],
+          blend: request.headers["x-frame-blend"],
+        })
         else if (!job.child.stdin.write(frame)) await new Promise((resolveDrain) => job.child.stdin.once("drain", resolveDrain))
         job.frames += 1
         return json(response, 200, { frame: job.frames })
