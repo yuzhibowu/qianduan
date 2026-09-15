@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { basename, resolve } from "node:path"
 import { promisify } from "node:util"
 import { randomUUID } from "node:crypto"
+import { PNG } from "pngjs"
 
 const exec = promisify(execFile)
 const jobs = new Map()
@@ -204,7 +205,13 @@ export function nativeExportBridge() {
       if (request.method === "POST" && frameMatch) {
         const job = jobs.get(frameMatch[1])
         if (!job) return json(response, 404, { error: "本机导出任务不存在" })
-        const frame = await bodyBuffer(request)
+        let frame = await bodyBuffer(request)
+        if (request.headers["x-frame-encoding"] === "rgba") {
+          const width = Number(request.headers["x-frame-width"])
+          const height = Number(request.headers["x-frame-height"])
+          if (!width || !height || frame.length !== width * height * 4) throw new Error("RGBA 帧尺寸不正确")
+          frame = PNG.sync.write({ width, height, data: frame }, { colorType: 6, inputColorType: 6, bitDepth: 8, inputHasAlpha: true })
+        }
         if (job.format === "apng") await appendFullFrameApng(job, frame, {
           x: request.headers["x-frame-x"], y: request.headers["x-frame-y"],
           canvasWidth: request.headers["x-canvas-width"], canvasHeight: request.headers["x-canvas-height"],

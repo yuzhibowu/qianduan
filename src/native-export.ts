@@ -65,7 +65,7 @@ export async function appendNativeFrame(
   session: NativeExportSession,
   frame: Blob,
   signal: AbortSignal,
-  region?: { x: number; y: number; canvasWidth: number; canvasHeight: number; blend: "source" | "over" },
+  region?: { x: number; y: number; width?: number; height?: number; canvasWidth: number; canvasHeight: number; blend: "source" | "over"; encoding?: "png" | "rgba" },
 ) {
   const response = await fetch(`${session.endpoint}/frame/${encodeURIComponent(session.id)}`, {
     method: "POST",
@@ -77,6 +77,9 @@ export async function appendNativeFrame(
         "X-Canvas-Width": String(region.canvasWidth),
         "X-Canvas-Height": String(region.canvasHeight),
         "X-Frame-Blend": region.blend,
+        "X-Frame-Width": String(region.width ?? 0),
+        "X-Frame-Height": String(region.height ?? 0),
+        "X-Frame-Encoding": region.encoding ?? "png",
       } : {}),
     },
     body: frame,

@@ -1,6 +1,9 @@
 import AppKit
+import CoreGraphics
 import Foundation
+import ImageIO
 import Network
+import UniformTypeIdentifiers
 
 private let port: NWEndpoint.Port = 43987
 private let pngSignature = Data([137, 80, 78, 71, 13, 10, 26, 10])
@@ -82,6 +85,26 @@ private func inspectPng(_ data: Data) throws -> PngParts {
 }
 
 private enum HelperError: Error { case message(String) }
+
+private func pngFromRGBA(_ rgba: Data, width: Int, height: Int) throws -> Data {
+  guard width > 0, height > 0, rgba.count == width * height * 4 else {
+    throw HelperError.message("RGBA 帧尺寸不正确")
+  }
+  guard let provider = CGDataProvider(data: rgba as CFData),
+        let image = CGImage(
+          width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+          provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
+        ) else { throw HelperError.message("无法创建 RGBA 图像") }
+  let output = NSMutableData()
+  guard let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil) else {
+    throw HelperError.message("无法创建 PNG 编码器")
+  }
+  CGImageDestinationAddImage(destination, image, nil)
+  guard CGImageDestinationFinalize(destination) else { throw HelperError.message("PNG 编码失败") }
+  return output as Data
+}
 
 private final class ExportJob: @unchecked Sendable {
   let id: String
@@ -208,7 +231,7 @@ private final class HelperServer: @unchecked Sendable {
     return [
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, X-Frame-X, X-Frame-Y, X-Canvas-Width, X-Canvas-Height, X-Frame-Blend",
+      "Access-Control-Allow-Headers": "Content-Type, X-Frame-X, X-Frame-Y, X-Frame-Width, X-Frame-Height, X-Canvas-Width, X-Canvas-Height, X-Frame-Blend, X-Frame-Encoding",
       "Access-Control-Allow-Private-Network": "true",
       "Vary": "Origin",
     ]
@@ -302,7 +325,12 @@ private final class HelperServer: @unchecked Sendable {
           let y = UInt32(request.headers["x-frame-y"] ?? "0") ?? 0
           let canvasWidth = UInt32(request.headers["x-canvas-width"] ?? "")
           let canvasHeight = UInt32(request.headers["x-canvas-height"] ?? "")
-          try job.append(request.body, x: x, y: y, canvasWidth: canvasWidth, canvasHeight: canvasHeight, blendOver: request.headers["x-frame-blend"] == "over")
+          let frameWidth = Int(request.headers["x-frame-width"] ?? "") ?? 0
+          let frameHeight = Int(request.headers["x-frame-height"] ?? "") ?? 0
+          let frame = request.headers["x-frame-encoding"] == "rgba"
+            ? try pngFromRGBA(request.body, width: frameWidth, height: frameHeight)
+            : request.body
+          try job.append(frame, x: x, y: y, canvasWidth: canvasWidth, canvasHeight: canvasHeight, blendOver: request.headers["x-frame-blend"] == "over")
           return send(connection, headers: headers, body: json(["frame": job.frames]))
         }
         if request.method == "POST" && pieces[1] == "finish" { try job.finish(); return send(connection, headers: headers, body: json(["outputName": job.outputName, "downloadUrl": "http://127.0.0.1:\(port.rawValue)/v1/download/\(job.id)"])) }

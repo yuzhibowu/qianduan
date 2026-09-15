@@ -144,7 +144,7 @@ function canvasToBlob(canvas: HTMLCanvasElement) {
 type SmartApngFrame = {
   blob: Blob;
   pixels: ImageData;
-  region: { x: number; y: number; canvasWidth: number; canvasHeight: number; blend: "source" | "over" };
+  region: { x: number; y: number; width: number; height: number; canvasWidth: number; canvasHeight: number; blend: "source" | "over"; encoding: "png" | "rgba" };
 };
 
 async function compressedApngFrame(
@@ -152,28 +152,26 @@ async function compressedApngFrame(
   context: CanvasRenderingContext2D,
   previous: ImageData | null,
   forceFull: boolean,
+  nativeRgba: boolean,
 ): Promise<SmartApngFrame> {
   const current = context.getImageData(0, 0, canvas.width, canvas.height);
   if (!previous || forceFull) {
     return {
-      blob: await canvasToBlob(canvas),
+      blob: nativeRgba ? new Blob([current.data]) : await canvasToBlob(canvas),
       pixels: current,
-      region: { x: 0, y: 0, canvasWidth: canvas.width, canvasHeight: canvas.height, blend: "source" as const },
+      region: { x: 0, y: 0, width: canvas.width, height: canvas.height, canvasWidth: canvas.width, canvasHeight: canvas.height, blend: "source", encoding: nativeRgba ? "rgba" : "png" },
     };
   }
   let left = canvas.width;
   let top = canvas.height;
   let right = -1;
   let bottom = -1;
+  const current32 = new Uint32Array(current.data.buffer, current.data.byteOffset, current.data.byteLength / 4);
+  const previous32 = new Uint32Array(previous.data.buffer, previous.data.byteOffset, previous.data.byteLength / 4);
   for (let y = 0; y < canvas.height; y += 1) {
     for (let x = 0; x < canvas.width; x += 1) {
-      const offset = (y * canvas.width + x) * 4;
-      if (
-        current.data[offset] !== previous.data[offset]
-        || current.data[offset + 1] !== previous.data[offset + 1]
-        || current.data[offset + 2] !== previous.data[offset + 2]
-        || current.data[offset + 3] !== previous.data[offset + 3]
-      ) {
+      const offset = y * canvas.width + x;
+      if (current32[offset] !== previous32[offset]) {
         left = Math.min(left, x); top = Math.min(top, y);
         right = Math.max(right, x); bottom = Math.max(bottom, y);
       }
@@ -183,20 +181,26 @@ async function compressedApngFrame(
     const idle = document.createElement("canvas");
     idle.width = 1; idle.height = 1;
     return {
-      blob: await canvasToBlob(idle),
+      blob: nativeRgba ? new Blob([new Uint8Array(4)]) : await canvasToBlob(idle),
       pixels: current,
-      region: { x: 0, y: 0, canvasWidth: canvas.width, canvasHeight: canvas.height, blend: "over" as const },
+      region: { x: 0, y: 0, width: 1, height: 1, canvasWidth: canvas.width, canvasHeight: canvas.height, blend: "over", encoding: nativeRgba ? "rgba" : "png" },
     };
   }
   const width = right - left + 1;
   const height = bottom - top + 1;
-  const delta = document.createElement("canvas");
-  delta.width = width; delta.height = height;
-  delta.getContext("2d", { alpha: true })!.putImageData(context.getImageData(left, top, width, height), 0, 0);
+  const cropped = context.getImageData(left, top, width, height);
+  let blob: Blob;
+  if (nativeRgba) blob = new Blob([cropped.data]);
+  else {
+    const delta = document.createElement("canvas");
+    delta.width = width; delta.height = height;
+    delta.getContext("2d", { alpha: true })!.putImageData(cropped, 0, 0);
+    blob = await canvasToBlob(delta);
+  }
   return {
-    blob: await canvasToBlob(delta),
+    blob,
     pixels: current,
-    region: { x: left, y: top, canvasWidth: canvas.width, canvasHeight: canvas.height, blend: "source" as const },
+    region: { x: left, y: top, width, height, canvasWidth: canvas.width, canvasHeight: canvas.height, blend: "source", encoding: nativeRgba ? "rgba" : "png" },
   };
 }
 
@@ -538,6 +542,9 @@ export async function exportInBrowser(
       : `OriginKit-${settings.componentName}-${stamp}-prores4444xq.mov`;
     let nativeSession: NativeExportSession | null = null;
     let apng: FullFrameApngBuilder | null = null;
+    const nativeApngStage = settings.pngCompression
+      ? "本机无损差分编码加持，神速"
+      : "本机完整帧编码加持，神速";
     if (format === "mov" || format === "apng") {
       report({
         stage: format === "mov" ? "正在检测本机 FFmpeg" : "正在检测本机完整帧编码器",
@@ -550,7 +557,7 @@ export async function exportInBrowser(
         try {
           nativeSession = await startNativeExport(format, settings.fps, outputName, settings.pngCompression, totalFrames, native.endpoint, signal);
           activeNativeSessions.set(format, nativeSession);
-          report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : "本机完整帧编码加持，神速", frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
+          report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : nativeApngStage, frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
         } catch {
           nativeSession = null;
         }
@@ -590,7 +597,7 @@ export async function exportInBrowser(
         sequenceEntries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await fullBlob.arrayBuffer());
       }
       const smartFrame: SmartApngFrame | null = format === "apng" && settings.pngCompression
-        ? await compressedApngFrame(outputCanvas, outputContext, previousApngPixels, index % 120 === 0)
+        ? await compressedApngFrame(outputCanvas, outputContext, previousApngPixels, index % 120 === 0, Boolean(nativeSession))
         : null;
       if (smartFrame) previousApngPixels = smartFrame.pixels;
       const blob = smartFrame?.blob ?? fullBlob;
@@ -611,7 +618,7 @@ export async function exportInBrowser(
         stage:
           format === "apng"
             ? nativeSession
-              ? "本机完整帧编码加持，神速"
+              ? nativeApngStage
               : "正在编码完整 PNG 帧"
             : nativeSession
               ? "本机 FFmpeg 加持，神速"
@@ -628,7 +635,7 @@ export async function exportInBrowser(
       download(new Blob([archive as BlobPart], { type: "application/zip" }), `OriginKit-${settings.componentName}-${Date.now()}-png-sequence.zip`);
     }
     if (nativeSession) {
-      report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : "本机完整帧编码加持，神速", frame: totalFrames, totalFrames, progress: 85 });
+      report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : nativeApngStage, frame: totalFrames, totalFrames, progress: 85 });
       const result = await finishNativeExport(nativeSession, signal);
       activeNativeSessions.delete(format);
       nativeSession = null;
