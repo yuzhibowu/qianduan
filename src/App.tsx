@@ -623,7 +623,11 @@ export default function App() {
     "text-ring": { ...DEFAULT_APPEARANCE, material: materialFromPreset("gold") },
     "shiny-pill": { ...DEFAULT_APPEARANCE, material: materialFromPreset("plastic") },
   });
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "dark";
+    const saved = window.localStorage.getItem("origin-kit-theme");
+    return saved === "light" || saved === "dark" ? saved : "dark";
+  });
   const [exportJobs, setExportJobs] = useState<Record<BrowserExportFormat, ExportJob>>({
     mov: emptyExportJob(),
     apng: emptyExportJob(),
@@ -1142,6 +1146,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem("origin-kit-theme", theme);
   }, [theme]);
 
   useEffect(() => {
