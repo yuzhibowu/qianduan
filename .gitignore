@@ -7,3 +7,4 @@ vite.config.js
 vite.config.d.ts
 .DS_Store
 native-helper/.build/
+native-helper/Resources/AppIcon.iconset/

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="180" fill="#ffffff"/>
+  <text x="512" y="490" text-anchor="middle" font-family="PingFang SC, sans-serif" font-size="150" font-weight="800" fill="#1d1d1f">饼饼SHOW</text>
+  <rect x="250" y="560" width="524" height="22" rx="11" fill="#ffe600"/>
+</svg>
