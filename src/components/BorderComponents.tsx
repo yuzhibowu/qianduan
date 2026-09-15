@@ -11,7 +11,13 @@ import type { InteractionSample } from "../interaction";
 import type { FrostedTypeBandSettings } from "./FrostedTypeBandRenderer";
 import type { PaperImageSettings } from "./PaperImageRenderer";
 import type { BorderIllustration } from "../border-illustration";
-import { alphaEdgeMaskPixels, alphaGroupEnvelopePixels, alphaIslandCount } from "../alpha-edge-mask";
+import {
+  alphaContourThreshold,
+  alphaPositionedEdgeMaskPixels,
+  alphaGroupEnvelopePixels,
+  alphaIslandCount,
+  type BorderWrapPosition,
+} from "../alpha-edge-mask";
 import { angleAtPerimeterPhase, perimeterAngleLut } from "../alpha-perimeter";
 import { neonSegmentDuration } from "../border-timing";
 import type { ShinyGraphic } from "../shiny-graphic";
@@ -19,6 +25,8 @@ import type { ShinyGraphic } from "../shiny-graphic";
 export type BorderRendererProps = {
   baseColor: string;
   accentColor: string;
+  tertiaryColor?: string;
+  borderWrapPosition?: BorderWrapPosition;
   speed: number;
   distance: number;
   timeSeconds: number;
@@ -259,7 +267,14 @@ function Illustration({
     onPointerCancel: () => { dragRef.current = null; },
   };
   const media = decoded ? (
-    <canvas ref={canvasRef} width={naturalWidth} height={naturalHeight} style={style} {...pointerHandlers} />
+    <canvas
+      ref={canvasRef}
+      width={naturalWidth}
+      height={naturalHeight}
+      data-border-illustration-canvas={overlay ? "overlay" : "background"}
+      style={style}
+      {...pointerHandlers}
+    />
   ) : (
     <img src={value.src} alt="" draggable={false} style={style} {...pointerHandlers} />
   );
@@ -381,8 +396,9 @@ function useBackgroundIllustrationEdgeMasks(
   value: BorderIllustration | undefined,
   size: Size,
   widths: number[],
+  position: BorderWrapPosition,
 ) {
-  const [geometry, setGeometry] = useState<{ urls: string[]; angles: number[] } | null>(null);
+  const [geometry, setGeometry] = useState<{ urls: string[]; angles: number[]; padding: number } | null>(null);
   const widthsKey = widths.map((width) => width.toFixed(3)).join(",");
   useEffect(() => {
     if (!value || size.width < 1 || size.height < 1) {
@@ -418,13 +434,18 @@ function useBackgroundIllustrationEdgeMasks(
         analysisHeight,
       );
       const pixels = analysisContext.getImageData(0, 0, analysisWidth, analysisHeight).data;
+      const alphaThreshold = alphaContourThreshold(pixels, analysisWidth, analysisHeight);
       const width = Math.max(1, size.width);
       const pathUnitsPerPixel = analysisWidth / width;
+      const outsideFactor = position === "outside" ? 1 : position === "center" ? 0.5 : 0;
+      const analysisPadding = outsideFactor === 0
+        ? 0
+        : Math.ceil(Math.max(...widths) * pathUnitsPerPixel * outsideFactor + 2);
       // A disconnected logo or text image is one background illustration, not
       // a collection of independently glowing glyphs. Wrap all Alpha islands in
       // one exterior envelope while leaving a true single-contour asset intact.
-      const contourPixels = alphaIslandCount(pixels, analysisWidth, analysisHeight) > 1
-        ? alphaGroupEnvelopePixels(pixels, analysisWidth, analysisHeight)
+      const contourPixels = alphaIslandCount(pixels, analysisWidth, analysisHeight, alphaThreshold) > 1
+        ? alphaGroupEnvelopePixels(pixels, analysisWidth, analysisHeight, alphaThreshold)
         : pixels;
       const makeMaskUrl = async (
         sourcePixels: Uint8ClampedArray,
@@ -433,19 +454,24 @@ function useBackgroundIllustrationEdgeMasks(
         edgeWidth: number,
       ) => {
         const maskCanvas = document.createElement("canvas");
-        maskCanvas.width = sourceWidth;
-        maskCanvas.height = sourceHeight;
+        const mask = alphaPositionedEdgeMaskPixels(
+          sourcePixels,
+          sourceWidth,
+          sourceHeight,
+          edgeWidth * pathUnitsPerPixel,
+          position,
+          analysisPadding,
+          alphaThreshold,
+          alphaThreshold < 128,
+        );
+        maskCanvas.width = mask.width;
+        maskCanvas.height = mask.height;
         const maskContext = maskCanvas.getContext("2d");
         if (!maskContext) throw new Error("无法生成 PNG 的等距发光边缘");
         maskContext.putImageData(new ImageData(
-          alphaEdgeMaskPixels(
-            sourcePixels,
-            sourceWidth,
-            sourceHeight,
-            edgeWidth * pathUnitsPerPixel,
-          ),
-          sourceWidth,
-          sourceHeight,
+          mask.pixels,
+          mask.width,
+          mask.height,
         ), 0, 0);
         const blob = await new Promise<Blob>((resolve, reject) => {
           maskCanvas.toBlob((result) => result ? resolve(result) : reject(new Error("无法编码发光边缘遮罩")), "image/png");
@@ -454,12 +480,12 @@ function useBackgroundIllustrationEdgeMasks(
         objectUrls.push(url);
         return url;
       };
-      const angles = perimeterAngleLut(contourPixels, analysisWidth, analysisHeight);
+      const angles = perimeterAngleLut(contourPixels, analysisWidth, analysisHeight, alphaThreshold);
       if (!angles.length) throw new Error("PNG 中没有可用的主体闭合轮廓");
       const urls = await Promise.all(widths.map((edgeWidth) =>
         makeMaskUrl(contourPixels, analysisWidth, analysisHeight, edgeWidth),
       ));
-      if (live) setGeometry({ urls, angles });
+      if (live) setGeometry({ urls, angles, padding: analysisPadding / pathUnitsPerPixel });
     })().catch((error) => {
       console.error(error);
       if (live) setGeometry(null);
@@ -470,7 +496,7 @@ function useBackgroundIllustrationEdgeMasks(
       live = false;
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [value, size.height, size.width, widthsKey]);
+  }, [value, size.height, size.width, widthsKey, position]);
   return geometry;
 }
 
@@ -502,13 +528,15 @@ export function GlowBorder({
   borderOverlayIllustrations,
   onBorderOverlayChange,
   selectedBorderOverlayIndex,
+  borderWrapPosition = "inside",
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     rotorSize = Math.ceil(Math.hypot(size.width, size.height)) + 24,
     radius =
       ((clamp(rounded, 0, 100) / 100) * Math.min(size.width, size.height)) / 2,
     angle = (timeSeconds * clamp(speed, 0, 100) * 3.6) % 360,
-    contourGeometry = useBackgroundIllustrationEdgeMasks(borderIllustration, size, [borderWidth]);
+    contourGeometry = useBackgroundIllustrationEdgeMasks(borderIllustration, size, [borderWidth], borderWrapPosition),
+    wrapOffset = borderWrapPosition === "outside" ? borderWidth : borderWrapPosition === "center" ? borderWidth / 2 : 0;
   const tailColor = `${baseColor}66`,
     resting = "rgba(255,255,255,0.04)",
     arc = 0.6 * 180 * 0.94,
@@ -533,18 +561,17 @@ export function GlowBorder({
         <div
           style={contourGeometry ? {
             position: "absolute",
-            inset: 0,
+            inset: -contourGeometry.padding,
             overflow: "hidden",
             pointerEvents: "none",
             ...alphaMaskStyle(contourGeometry.urls[0]),
           } : {
-            position: "relative",
-            width: "100%",
-            height: "100%",
+            position: "absolute",
+            inset: -wrapOffset,
             minWidth: 8,
             minHeight: 8,
             boxSizing: "border-box",
-            borderRadius: radius,
+            borderRadius: radius + wrapOffset,
             padding: Math.max(0, borderWidth),
             overflow: "hidden",
             pointerEvents: "none",
@@ -679,6 +706,7 @@ export function NeonBorder({
   borderOverlayIllustrations,
   onBorderOverlayChange,
   selectedBorderOverlayIndex,
+  borderWrapPosition = "inside",
 }: BorderRendererProps) {
   const [frameRef, size] = useSize<HTMLDivElement>(),
     safeSpeed = clamp(speed, 0, 20),
@@ -701,7 +729,7 @@ export function NeonBorder({
       borderWidth,
       ...layers.map((layer) => borderWidth + glowAmount * 36 * layer.reach),
     ],
-    contourGeometry = useBackgroundIllustrationEdgeMasks(borderIllustration, size, contourWidths),
+    contourGeometry = useBackgroundIllustrationEdgeMasks(borderIllustration, size, contourWidths, borderWrapPosition),
     makeArc = (offset: number) =>
       neonArc(
         phase + offset + clamp(neonPosition, -100, 100) / 100,
@@ -715,7 +743,7 @@ export function NeonBorder({
     <div
       style={{
         position: "absolute",
-        inset: 0,
+        inset: -(contourGeometry?.padding ?? 0),
         background: "var(--arc)",
         ...alphaMaskStyle(maskUrl),
       }}
@@ -723,22 +751,22 @@ export function NeonBorder({
   );
   const contourEdge = (maskIndex: number) =>
     contourGeometry ? maskedEdge(contourGeometry.urls[maskIndex]) : null;
-  const edge = (padding: number, inset = 0) => (
-    <div
-      style={{
-        position: "absolute",
-        // The luminous stroke belongs to the frame's inner edge. Blurred glow may
-        // spread outside naturally, but the moving stroke itself must not enlarge
-        // the frame or orbit outside an imported illustration.
-        inset,
-        boxSizing: "border-box",
-        padding,
-        borderRadius: radius,
-        background: "var(--arc)",
-        ...mask,
-      }}
-    />
-  );
+  const edge = (padding: number, inset = 0) => {
+    const wrapOffset = borderWrapPosition === "outside" ? padding : borderWrapPosition === "center" ? padding / 2 : 0;
+    return (
+      <div
+        style={{
+          position: "absolute",
+          inset: inset - wrapOffset,
+          boxSizing: "border-box",
+          padding,
+          borderRadius: radius + wrapOffset,
+          background: "var(--arc)",
+          ...mask,
+        }}
+      />
+    );
+  };
   const ring = (offset: number) => (
     <div
       style={
@@ -827,6 +855,7 @@ export function NeonBorder({
 export function PulsatingBorder({
   baseColor,
   accentColor,
+  tertiaryColor = "#379590",
   speed,
   distance,
   timeSeconds,
@@ -840,18 +869,23 @@ export function PulsatingBorder({
   borderOverlayIllustrations,
   onBorderOverlayChange,
   selectedBorderOverlayIndex,
+  borderWrapPosition = "inside",
 }: BorderRendererProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const [frameRef, size] = useSize<HTMLDivElement>(),
     spread = 31,
     worldWidth = size.width + spread * 2,
     worldHeight = size.height + spread * 2,
     extra = Math.min(480, Math.ceil(0.4 * Math.min(worldWidth, worldHeight))),
     outset = spread + extra,
-    contourWidth = borderWidth + clamp(glow, 0, 100) * 0.24,
-    contourGeometry = useBackgroundIllustrationEdgeMasks(borderIllustration, size, [contourWidth]);
+    contourGeometry = useBackgroundIllustrationEdgeMasks(borderIllustration, size, [borderWidth], borderWrapPosition),
+    wrapOffset = borderWrapPosition === "outside" ? borderWidth : borderWrapPosition === "center" ? borderWidth / 2 : 0,
+    glowAmount = clamp(glow, 0, 100) / 100,
+    contourGlowRadius = glowAmount * 20,
+    contourGlowMargin = Math.ceil(contourGlowRadius * 3);
   const shader = (
     <PulsingBorder
-      colors={[baseColor, accentColor, "#379590"]}
+      colors={[baseColor, accentColor, tertiaryColor]}
       colorBack="rgba(0,0,0,0)"
       speed={0}
       frame={timeSeconds * clamp(speed, 1, 10) * 1000}
@@ -859,7 +893,7 @@ export function PulsatingBorder({
       thickness={contourGeometry ? 1 : borderWidth / 100}
       softness={0.75}
       intensity={0.3}
-      bloom={glow / 100}
+      bloom={contourGeometry ? 0 : glow / 100}
       spots={3}
       spotSize={0.3}
       pulse={0}
@@ -869,10 +903,10 @@ export function PulsatingBorder({
       worldHeight={worldHeight}
       fit="none"
       scale={1}
-      marginLeft={spread / worldWidth}
-      marginRight={spread / worldWidth}
-      marginTop={spread / worldHeight}
-      marginBottom={spread / worldHeight}
+      marginLeft={(spread - wrapOffset) / worldWidth}
+      marginRight={(spread - wrapOffset) / worldWidth}
+      marginTop={(spread - wrapOffset) / worldHeight}
+      marginBottom={(spread - wrapOffset) / worldHeight}
       style={{
         position: "absolute",
         left: -outset,
@@ -883,8 +917,124 @@ export function PulsatingBorder({
       }}
     />
   );
+  const contourLayer = (filter?: string, opacity = 1, luminous = false) => contourGeometry ? (
+    <div
+      style={{
+        position: "absolute",
+        inset: contourGlowMargin,
+        filter,
+        opacity,
+        mixBlendMode: luminous ? "plus-lighter" : undefined,
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          ...alphaMaskStyle(contourGeometry.urls[0]),
+        }}
+      >
+        <div style={{ position: "absolute", inset: contourGeometry.padding }}>
+          {shader}
+        </div>
+      </div>
+    </div>
+  ) : null;
+  useEffect(() => {
+    const root = rootRef.current;
+    const panel = frameRef.current;
+    if (
+      !root ||
+      !panel ||
+      !root.closest("[data-testid='export-stage']") ||
+      !borderIllustration ||
+      !contourGeometry ||
+      (borderOverlayIllustrations?.length ?? 0) > 0
+    ) return;
+
+    const output = document.createElement("canvas");
+    const layer = document.createElement("canvas");
+    const maskImage = new Image();
+    const maskReady = new Promise<void>((resolve, reject) => {
+      maskImage.onload = () => resolve();
+      maskImage.onerror = () => reject(new Error("无法读取边框导出遮罩"));
+    });
+    maskImage.src = contourGeometry.urls[0];
+    const capture = async () => {
+      await maskReady;
+      const rootRect = root.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      output.width = Math.max(1, Math.round(rootRect.width));
+      output.height = Math.max(1, Math.round(rootRect.height));
+      layer.width = output.width;
+      layer.height = output.height;
+      const context = output.getContext("2d", { alpha: true })!;
+      const layerContext = layer.getContext("2d", { alpha: true })!;
+      context.clearRect(0, 0, output.width, output.height);
+      layerContext.clearRect(0, 0, layer.width, layer.height);
+
+      const illustration = root.querySelector(
+        "canvas[data-border-illustration-canvas='background']",
+      ) as HTMLCanvasElement | null;
+      if (illustration) {
+        const rect = illustration.getBoundingClientRect();
+        context.drawImage(
+          illustration,
+          rect.left - rootRect.left,
+          rect.top - rootRect.top,
+          rect.width,
+          rect.height,
+        );
+      }
+
+      const shaderCanvases = Array.from(root.querySelectorAll("canvas")).filter(
+        (canvas) => !canvas.hasAttribute("data-border-illustration-canvas"),
+      ) as HTMLCanvasElement[];
+      const shaderCanvas = shaderCanvases[shaderCanvases.length - 1];
+      if (!shaderCanvas) return output;
+      const shaderRect = shaderCanvas.getBoundingClientRect();
+      layerContext.drawImage(
+        shaderCanvas,
+        shaderRect.left - rootRect.left,
+        shaderRect.top - rootRect.top,
+        shaderRect.width,
+        shaderRect.height,
+      );
+      layerContext.globalCompositeOperation = "destination-in";
+      const scaleX = panelRect.width / Math.max(1, size.width);
+      const scaleY = panelRect.height / Math.max(1, size.height);
+      const maskLeft = panelRect.left - rootRect.left - contourGeometry.padding * scaleX;
+      const maskTop = panelRect.top - rootRect.top - contourGeometry.padding * scaleY;
+      layerContext.drawImage(
+        maskImage,
+        maskLeft,
+        maskTop,
+        panelRect.width + contourGeometry.padding * scaleX * 2,
+        panelRect.height + contourGeometry.padding * scaleY * 2,
+      );
+      layerContext.globalCompositeOperation = "source-over";
+
+      if (glowAmount > 0) {
+        context.save();
+        context.globalCompositeOperation = "lighter";
+        context.globalAlpha = 0.5 + glowAmount * 0.5;
+        context.filter = `blur(${Math.max(1, contourGlowRadius * 0.24 * scaleX)}px)`;
+        context.drawImage(layer, 0, 0);
+        context.globalAlpha = 0.35 + glowAmount * 0.55;
+        context.filter = `blur(${Math.max(2, contourGlowRadius * scaleX)}px)`;
+        context.drawImage(layer, 0, 0);
+        context.restore();
+      }
+      context.drawImage(layer, 0, 0);
+      return output;
+    };
+    window.__originKitCaptureFrame = capture;
+    return () => {
+      if (window.__originKitCaptureFrame === capture) delete window.__originKitCaptureFrame;
+    };
+  }, [borderIllustration, borderOverlayIllustrations, contourGeometry, contourGlowRadius, glowAmount, size.height, size.width]);
   return (
-    <div className="motion-root">
+    <div ref={rootRef} className="motion-root">
       <div
         ref={frameRef}
         style={panelStyle(distance, background, borderAspect, canvasAspect)}
@@ -894,13 +1044,22 @@ export function PulsatingBorder({
           <div
             style={{
               position: "absolute",
-              inset: 0,
+              inset: -(contourGeometry.padding + contourGlowMargin),
               overflow: "visible",
               pointerEvents: "none",
-              ...alphaMaskStyle(contourGeometry.urls[0]),
             }}
           >
-            {shader}
+            {glowAmount > 0 && contourLayer(
+              `blur(${Math.max(1, contourGlowRadius * 0.24)}px) saturate(${1 + glowAmount * 0.4})`,
+              0.5 + glowAmount * 0.5,
+              true,
+            )}
+            {glowAmount > 0 && contourLayer(
+              `blur(${Math.max(2, contourGlowRadius)}px) saturate(${1 + glowAmount * 0.4})`,
+              0.35 + glowAmount * 0.55,
+              true,
+            )}
+            {contourLayer()}
           </div>
         ) : shader)}
         <OverlayIllustrations values={borderOverlayIllustrations} timeSeconds={timeSeconds} onChange={onBorderOverlayChange} selectedIndex={selectedBorderOverlayIndex} frameSize={size} />
@@ -912,5 +1071,6 @@ export function PulsatingBorder({
 declare global {
   interface Window {
     __originKitAssetsReady?: Promise<void>;
+    __originKitCaptureFrame?: () => Promise<HTMLCanvasElement>;
   }
 }

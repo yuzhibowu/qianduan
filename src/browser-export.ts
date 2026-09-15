@@ -8,11 +8,13 @@ import type { PaperImageSettings } from "./components/PaperImageRenderer";
 import type { InspiraRippleSettings } from "./components/InspiraRipple";
 import type { DiscCurveSettings } from "./disc-curve";
 import type { BorderIllustration } from "./border-illustration";
+import type { BorderWrapPosition } from "./alpha-edge-mask";
 import type { ShinyGraphic } from "./shiny-graphic";
 import { FullFrameApngBuilder } from "./apng";
 import {
   ADAPTIVE_SAFETY_PADDING,
   adaptiveAlphaBounds,
+  staticBorderAdaptiveCrop,
   type PixelBounds,
 } from "./adaptive-bounds";
 
@@ -30,6 +32,7 @@ export type BrowserExportSettings = {
   background: string;
   baseColor: string;
   accentColor: string;
+  tertiaryColor: string;
   speed: number;
   ringSpeed: number;
   distance: number;
@@ -37,6 +40,7 @@ export type BrowserExportSettings = {
   coinSize: number;
   spread: number;
   borderWidth: number;
+  borderWrapPosition: BorderWrapPosition;
   rounded: number;
   glow: number;
   neonLength: number;
@@ -198,6 +202,7 @@ async function createRenderSession(
     background: settings.background,
     baseColor: settings.baseColor,
     accentColor: settings.accentColor,
+    tertiaryColor: settings.tertiaryColor,
     speed: String(settings.speed),
     ringSpeed: String(settings.ringSpeed),
     distance: String(settings.distance),
@@ -205,6 +210,7 @@ async function createRenderSession(
     coinSize: String(settings.coinSize),
     spread: String(settings.spread),
     borderWidth: String(settings.borderWidth),
+    borderWrapPosition: settings.borderWrapPosition,
     rounded: String(settings.rounded),
     glow: String(settings.glow),
     neonLength: String(settings.neonLength),
@@ -313,7 +319,12 @@ async function createRenderSession(
         context.fillStyle = settings.background;
         context.fillRect(0, 0, composed.width, composed.height);
       }
-      if (source)
+      const captured = child.__originKitCaptureFrame
+        ? await wait(child.__originKitCaptureFrame(), signal)
+        : null;
+      if (captured)
+        context.drawImage(captured, 0, 0, composed.width, composed.height);
+      else if (source)
         context.drawImage(source, 0, 0, composed.width, composed.height);
       else {
         const { toCanvas } = await import("html-to-image");
@@ -420,11 +431,28 @@ export async function exportInBrowser(
   let ffmpeg: FFmpeg | null = null;
   let session: RenderSession | null = null;
   try {
+    report({
+      stage: "Preparing Renderer",
+      frame: 0,
+      totalFrames: validate(settings),
+      progress: 1,
+    });
     session = await createRenderSession(settings, signal);
     const totalFrames = session.totalFrames;
+    const staticCrop = settings.adaptiveCanvas
+      ? staticBorderAdaptiveCrop(settings)
+      : null;
     const crop = settings.adaptiveCanvas
-      ? await calculateAdaptiveCrop(session, signal, report)
+      ? staticCrop ?? await calculateAdaptiveCrop(session, signal, report)
       : { left: 0, top: 0, width: session.width, height: session.height };
+    if (staticCrop) {
+      report({
+        stage: "Calculating Visible Area",
+        frame: totalFrames,
+        totalFrames,
+        progress: 35,
+      });
+    }
     const outputCanvas = document.createElement("canvas");
     outputCanvas.width = crop.width;
     outputCanvas.height = crop.height;
@@ -471,37 +499,16 @@ export async function exportInBrowser(
       } else if (ffmpeg) {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         const frameName = `frame_${String(index).padStart(5, "0")}.png`;
-        if (settings.pngCompression) {
-          const rawName = `raw_${String(index).padStart(5, "0")}.png`;
-          await wait(ffmpeg.writeFile(rawName, bytes), signal);
-          const compressed = await wait(
-            ffmpeg.exec([
-              "-y",
-              "-i",
-              rawName,
-              "-frames:v",
-              "1",
-              "-compression_level",
-              "9",
-              "-pred",
-              "mixed",
-              frameName,
-            ]),
-            signal,
-          );
-          await ffmpeg.deleteFile(rawName);
-          if (compressed !== 0)
-            throw new Error(`第 ${index + 1} 帧 PNG 压缩失败`);
-        } else {
-          await wait(ffmpeg.writeFile(frameName, bytes), signal);
-        }
+        // canvas.toBlob already supplies a lossless PNG. Re-encoding every
+        // intermediate frame with a separate ffmpeg.wasm process cannot
+        // improve the final ProRes image; it only reduces temporary file size
+        // while multiplying export time by the number of frames.
+        await wait(ffmpeg.writeFile(frameName, bytes), signal);
       }
       report({
         stage:
           format === "apng"
             ? "Encoding Full Frames"
-            : settings.pngCompression
-            ? "Compressing PNG Frames"
             : "Preparing Encoder",
         frame: index + 1,
         totalFrames,

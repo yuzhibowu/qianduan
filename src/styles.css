@@ -465,6 +465,9 @@ h2 {
 .color-row.single {
   grid-template-columns: 1fr;
 }
+.color-row.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .field {
   display: grid;
   gap: 6px;
@@ -846,6 +849,12 @@ button:disabled {
 .opts.four {
   grid-template-columns: repeat(4, 1fr);
 }
+.border-wrap-field {
+  margin-top: 8px;
+}
+.border-wrap-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .field-heading {
   margin: var(--section-gap) 0 3px;
   padding-top: var(--section-gap);
@@ -1102,6 +1111,7 @@ button:disabled {
 @media (max-width: 560px) {
   .field-row,
   .color-row,
+  .color-row.three,
   .opts {
     grid-template-columns: 1fr;
   }

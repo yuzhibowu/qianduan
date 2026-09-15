@@ -36,9 +36,11 @@ import DiscCurveEditor from "./components/DiscCurveEditor";
 import {
   alphaRoundedPercent,
   displayIllustrationAspect,
+  pngHasAnimation,
   visibleAlphaBounds,
   type BorderIllustration,
 } from "./border-illustration";
+import { alphaContourThreshold, type BorderWrapPosition } from "./alpha-edge-mask";
 import {
   DEFAULT_APPEARANCE,
   MATERIAL_PRESETS,
@@ -83,6 +85,8 @@ const emptyExportJob = (): ExportJob => ({
 type ComponentControls = {
   baseColor: string;
   accentColor: string;
+  tertiaryColor?: string;
+  borderWrapPosition?: BorderWrapPosition;
   speed: number;
   ringSpeed: number;
   distance: number;
@@ -140,6 +144,7 @@ function readDataUrl(file: File) {
 
 async function inspectBorderIllustration(file: File): Promise<BorderIllustration> {
   if (file.type !== "image/png") throw new Error("只支持 PNG 图片或 PNG 动图");
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
   const src = await readDataUrl(file);
   const image = new Image();
   image.src = src;
@@ -151,15 +156,22 @@ async function inspectBorderIllustration(file: File): Promise<BorderIllustration
   if (!context) throw new Error("无法分析 PNG 透明区域");
   context.drawImage(image, 0, 0);
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-  const bounds = visibleAlphaBounds(pixels, canvas.width, canvas.height);
+  // Fitting and edge rendering must agree on what the illustration body is.
+  // Otherwise a translucent panel is cropped to its opaque text before the
+  // shared border contour code ever receives it.
+  const alphaThreshold = alphaContourThreshold(pixels, canvas.width, canvas.height, 240);
+  const bounds = visibleAlphaBounds(pixels, canvas.width, canvas.height, alphaThreshold);
+  const visualBounds = visibleAlphaBounds(pixels, canvas.width, canvas.height, 8);
   return {
     src,
     name: file.name || "剪贴板 PNG",
     naturalWidth: canvas.width,
     naturalHeight: canvas.height,
     bounds,
+    visualBounds,
     aspect: bounds.width / Math.max(1, bounds.height),
-    rounded: alphaRoundedPercent(pixels, canvas.width, bounds),
+    rounded: alphaRoundedPercent(pixels, canvas.width, bounds, alphaThreshold),
+    animated: pngHasAnimation(fileBytes),
   };
 }
 
@@ -285,6 +297,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     coinSize: 100,
     spread: 100,
     borderWidth: 5,
+    borderWrapPosition: "inside",
     rounded: 0,
     glow: 50,
     borderAspect: 16 / 9,
@@ -301,6 +314,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     coinSize: 100,
     spread: 100,
     borderWidth: 6,
+    borderWrapPosition: "inside",
     rounded: 24,
     glow: 100,
     neonLength: 50,
@@ -312,6 +326,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
   "pulsating-border": {
     baseColor: "#F2244F",
     accentColor: "#4DA6E6",
+    tertiaryColor: "#379590",
     speed: 1,
     ringSpeed: 50,
     distance: 20,
@@ -319,6 +334,7 @@ const COMPONENT_DEFAULTS: Record<string, ComponentControls> = {
     coinSize: 100,
     spread: 100,
     borderWidth: 5,
+    borderWrapPosition: "inside",
     rounded: 35,
     glow: 50,
     borderAspect: 16 / 9,
@@ -403,6 +419,8 @@ export default function App() {
   const queryBaseColor = query.get("baseColor") ?? queryDefaults.baseColor;
   const queryAccentColor =
     query.get("accentColor") ?? queryDefaults.accentColor;
+  const queryTertiaryColor =
+    query.get("tertiaryColor") ?? queryDefaults.tertiaryColor ?? "#379590";
   const querySpeed = Number(query.get("speed") ?? queryDefaults.speed);
   const queryRingSpeed = Number(
     query.get("ringSpeed") ?? queryDefaults.ringSpeed,
@@ -426,6 +444,9 @@ export default function App() {
   const queryDuration = Number(query.get("duration") ?? queryDefaults.duration);
   const queryFps = Number(query.get("fps") ?? 30);
   const queryBorderWidth = Number(query.get("borderWidth") ?? 5);
+  const queryBorderWrapPosition = (["inside", "center", "outside"].includes(query.get("borderWrapPosition") ?? "")
+    ? query.get("borderWrapPosition")
+    : queryDefaults.borderWrapPosition ?? "inside") as BorderWrapPosition;
   const queryRounded = Number(query.get("rounded") ?? 35);
   const queryGlow = Number(query.get("glow") ?? 50);
   const queryNeonLength = Number(query.get("neonLength") ?? queryDefaults.neonLength ?? 50);
@@ -528,6 +549,7 @@ export default function App() {
   const [ringSpeed, setRingSpeed] = useState(queryRingSpeed);
   const [baseColor, setBaseColor] = useState(queryBaseColor);
   const [accentColor, setAccentColor] = useState(queryAccentColor);
+  const [tertiaryColor, setTertiaryColor] = useState(queryTertiaryColor);
   const [distance, setDistance] = useState(queryDistance);
   const [count, setCount] = useState(queryCount);
   const [discProportions, setDiscProportions] = useState<number[]>(queryDiscProportions);
@@ -535,6 +557,7 @@ export default function App() {
   const [coinSize, setCoinSize] = useState(queryCoinSize);
   const [spread, setSpread] = useState(querySpread);
   const [borderWidth, setBorderWidth] = useState(queryBorderWidth);
+  const [borderWrapPosition, setBorderWrapPosition] = useState<BorderWrapPosition>(queryBorderWrapPosition);
   const [rounded, setRounded] = useState(queryRounded);
   const [glow, setGlow] = useState(queryGlow);
   const [neonLength, setNeonLength] = useState(queryNeonLength);
@@ -691,7 +714,6 @@ export default function App() {
         if (!live) return;
         setBorderIllustrations((current) => ({ ...current, [componentId]: next }));
         setBorderAspect(next.aspect);
-        setRounded(next.rounded);
         if (componentId === "neon-border") {
           const adapted = adaptNeonToAspect(next.aspect);
           setBorderWidth(adapted.borderWidth);
@@ -728,6 +750,7 @@ export default function App() {
         <MotionRenderer
           baseColor={queryBaseColor}
           accentColor={queryAccentColor}
+          tertiaryColor={queryTertiaryColor}
           speed={querySpeed}
           distance={queryDistance}
           coins={{
@@ -760,6 +783,7 @@ export default function App() {
           loopDuration={queryDuration}
           background={isLightBloom || isInspiraRipple ? queryBackground : "transparent"}
           borderWidth={queryBorderWidth}
+          borderWrapPosition={queryBorderWrapPosition}
           rounded={queryRounded}
           glow={queryGlow}
           neonLength={queryNeonLength}
@@ -788,9 +812,12 @@ export default function App() {
       fps,
       duration,
       delay,
-      background,
+      // Canvas background choices are preview aids only. Browser exports are
+      // always transparent so the result can be composited in Keynote.
+      background: "transparent",
       baseColor,
       accentColor,
+      tertiaryColor,
       speed,
       ringSpeed,
       distance,
@@ -798,6 +825,7 @@ export default function App() {
       coinSize,
       spread,
       borderWidth,
+      borderWrapPosition,
       rounded,
       glow,
       neonLength,
@@ -836,9 +864,9 @@ export default function App() {
       fps,
       duration,
       delay,
-      background,
       baseColor,
       accentColor,
+      tertiaryColor,
       speed,
       ringSpeed,
       distance,
@@ -846,6 +874,7 @@ export default function App() {
       coinSize,
       spread,
       borderWidth,
+      borderWrapPosition,
       rounded,
       glow,
       neonLength,
@@ -900,6 +929,7 @@ export default function App() {
     componentControlsRef.current[componentId] = {
       baseColor,
       accentColor,
+      tertiaryColor,
       speed,
       ringSpeed,
       distance,
@@ -907,6 +937,7 @@ export default function App() {
       coinSize,
       spread,
       borderWidth,
+      borderWrapPosition,
       rounded,
       glow,
       neonLength,
@@ -927,6 +958,7 @@ export default function App() {
     setComponentId(nextId);
     setBaseColor(next.baseColor);
     setAccentColor(next.accentColor);
+    setTertiaryColor(next.tertiaryColor ?? "#379590");
     setSpeed(next.speed);
     setRingSpeed(next.ringSpeed);
     setDistance(next.distance);
@@ -936,6 +968,7 @@ export default function App() {
     setCoinSize(next.coinSize);
     setSpread(next.spread);
     setBorderWidth(next.borderWidth);
+    setBorderWrapPosition(next.borderWrapPosition ?? "inside");
     setRounded(next.rounded);
     setGlow(next.glow);
     setNeonLength(next.neonLength ?? 50);
@@ -1145,7 +1178,6 @@ export default function App() {
       }
       setBorderIllustrations((current) => ({ ...current, [componentId]: next }));
       setBorderAspect(next.aspect);
-      setRounded(next.rounded);
       if (componentId === "neon-border") {
         const adapted = adaptNeonToAspect(next.aspect);
         setBorderWidth(adapted.borderWidth);
@@ -1296,6 +1328,7 @@ export default function App() {
               background={isLightBloom || isInspiraRipple ? background : "transparent"}
               baseColor={baseColor}
               accentColor={accentColor}
+              tertiaryColor={tertiaryColor}
               speed={speed}
               distance={distance}
               coins={{ count, coinSize, spread, ringSpeed }}
@@ -1313,6 +1346,7 @@ export default function App() {
               paperImage={paperImage}
               ripple={ripple}
               borderWidth={borderWidth}
+              borderWrapPosition={borderWrapPosition}
               rounded={rounded}
               glow={glow}
               neonLength={neonLength}
@@ -1507,7 +1541,7 @@ export default function App() {
                 </label>
               </div>
             )}
-            {!isFrostedTypeBand && !isPaperImage && !isInspiraRipple && <div className={`color-row ${isShinyGraphicMode ? "single" : ""}`}>
+            {!isFrostedTypeBand && !isPaperImage && !isInspiraRipple && <div className={`color-row ${isShinyGraphicMode ? "single" : ""} ${componentId === "pulsating-border" ? "three" : ""}`}>
               {!isShinyGraphicMode && <div className="field color-field">
                 <button
                   type="button"
@@ -1573,6 +1607,29 @@ export default function App() {
                   />
                 </span>
               </div>
+              {componentId === "pulsating-border" && <div className="field color-field">
+                <button
+                  type="button"
+                  className="color-field-reset"
+                  aria-label="辅助颜色，恢复默认值"
+                  title="恢复默认值"
+                  onClick={() => setTertiaryColor(componentColorDefaults.tertiaryColor ?? "#379590")}
+                >
+                  辅助颜色
+                </button>
+                <span
+                  className={`color-swatch ${tertiaryColor.toUpperCase() === "#FFFFFF" ? "is-white" : ""}`}
+                  style={{ background: tertiaryColor, color: colorCodeInk(tertiaryColor) }}
+                >
+                  <span className="color-code">{tertiaryColor.toUpperCase()}</span>
+                  <input
+                    aria-label="辅助颜色"
+                    type="color"
+                    value={tertiaryColor}
+                    onChange={(event) => setTertiaryColor(event.target.value)}
+                  />
+                </span>
+              </div>}
             </div>}
             {hasMaterialAppearance && !isShinyGraphicMode && (
               <div className="appearance-panel">
@@ -1667,7 +1724,26 @@ export default function App() {
                   onChange={setBorderWidth}
                   defaultValue={componentId === "neon-border" ? neonAdaptation.borderWidth : undefined}
                 />
-                <Slider
+                <div className="field border-wrap-field">
+                  <span>边框包裹位置</span>
+                  <div className="opts border-wrap-options">
+                    {([
+                      ["inside", "内侧"],
+                      ["center", "居中"],
+                      ["outside", "外侧"],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={`opt ${borderWrapPosition === value ? "active" : ""}`}
+                        onClick={() => setBorderWrapPosition(value)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {!borderIllustration && <Slider
                   label="圆角"
                   value={rounded}
                   min={0}
@@ -1675,7 +1751,7 @@ export default function App() {
                   step={1}
                   display={`${rounded}%`}
                   onChange={setRounded}
-                />
+                />}
                 <Slider
                   label="发光"
                   value={glow}

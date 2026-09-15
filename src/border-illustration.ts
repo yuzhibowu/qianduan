@@ -11,12 +11,27 @@ export type BorderIllustration = {
   naturalWidth: number;
   naturalHeight: number;
   bounds: IllustrationBounds;
+  /** Perceptually visible pixels (alpha >= 8), used for one-pass adaptive export. */
+  visualBounds?: IllustrationBounds;
   aspect: number;
   rounded: number;
+  animated?: boolean;
   offsetX?: number;
   offsetY?: number;
   scale?: number;
 };
+
+export function pngHasAnimation(bytes: Uint8Array) {
+  for (let index = 8; index + 8 <= bytes.length; ) {
+    const length = new DataView(bytes.buffer, bytes.byteOffset + index, 4).getUint32(0);
+    if (index + 12 + length > bytes.length) return false;
+    const type = String.fromCharCode(...bytes.subarray(index + 4, index + 8));
+    if (type === "acTL") return true;
+    if (type === "IEND") return false;
+    index += length + 12;
+  }
+  return false;
+}
 
 declare global {
   interface Window {
@@ -53,8 +68,9 @@ export function alphaRoundedPercent(
   data: Uint8ClampedArray,
   imageWidth: number,
   bounds: IllustrationBounds,
+  alphaThreshold = 240,
 ) {
-  const opaque = (x: number, y: number) => data[(y * imageWidth + x) * 4 + 3] >= 240;
+  const opaque = (x: number, y: number) => data[(y * imageWidth + x) * 4 + 3] >= alphaThreshold;
   const { x, y, width, height } = bounds;
   const right = x + width - 1;
   const bottom = y + height - 1;

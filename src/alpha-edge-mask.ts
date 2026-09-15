@@ -1,5 +1,52 @@
 const INF = 1e20;
 
+export type BorderWrapPosition = "inside" | "center" | "outside";
+
+/**
+ * A translucent panel can be the intended outer body even when its Alpha is
+ * below the normal 50% contour cut-off. Detect a stable, dominant Alpha
+ * plateau, while ignoring the spread-out low values produced by shadows and
+ * glows, and lower the geometry threshold only for that case.
+ */
+export function alphaContourThreshold(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  defaultThreshold = 128,
+) {
+  const histogram = new Uint32Array(256);
+  let nonTransparent = 0;
+  for (let index = 3; index < pixels.length; index += 4) {
+    const alpha = pixels[index];
+    if (alpha === 0) continue;
+    histogram[alpha] += 1;
+    nonTransparent += 1;
+  }
+  if (nonTransparent === 0) return defaultThreshold;
+
+  let peakPixels = 0;
+  for (let alpha = 8; alpha < defaultThreshold; alpha += 1) {
+    peakPixels = Math.max(peakPixels, histogram[alpha]);
+  }
+  const totalPixels = Math.max(1, width * height);
+  const minimumPlateau = Math.max(64, totalPixels * 0.02);
+  let plateauAlpha = 0;
+  for (let alpha = defaultThreshold - 1; alpha >= 8; alpha -= 1) {
+    const count = histogram[alpha];
+    if (
+      count >= minimumPlateau &&
+      count / nonTransparent >= 0.1 &&
+      count >= peakPixels * 0.2
+    ) {
+      plateauAlpha = alpha;
+      break;
+    }
+  }
+  if (plateauAlpha === 0) return defaultThreshold;
+
+  return Math.max(2, plateauAlpha - Math.max(2, Math.round(plateauAlpha * 0.05)));
+}
+
 function distanceTransform1D(values: Float64Array) {
   const length = values.length;
   const sites = new Int32Array(length);
@@ -32,6 +79,33 @@ function distanceTransform1D(values: Float64Array) {
   return output;
 }
 
+function squaredDistanceToAlphaClass(
+  alpha: Uint8ClampedArray,
+  width: number,
+  height: number,
+  alphaThreshold: number,
+  targetInside: boolean,
+) {
+  const horizontal = new Float64Array(width * height);
+  horizontal.fill(INF);
+  for (let y = 0; y < height; y += 1) {
+    const row = new Float64Array(width);
+    for (let x = 0; x < width; x += 1) {
+      const inside = alpha[y * width + x] >= alphaThreshold;
+      row[x] = inside === targetInside ? 0 : INF;
+    }
+    horizontal.set(distanceTransform1D(row), y * width);
+  }
+  const result = new Float64Array(width * height);
+  for (let x = 0; x < width; x += 1) {
+    const column = new Float64Array(height);
+    for (let y = 0; y < height; y += 1) column[y] = horizontal[y * width + x];
+    const transformed = distanceTransform1D(column);
+    for (let y = 0; y < height; y += 1) result[y * width + x] = transformed[y];
+  }
+  return result;
+}
+
 /**
  * Builds an inner edge from the true Euclidean distance to the source Alpha
  * boundary. The outer side and its parallel inner offset therefore cannot
@@ -43,6 +117,7 @@ export function alphaEdgeMaskPixels(
   height: number,
   edgeWidth: number,
   alphaThreshold = 128,
+  normalizeDetectedBody = false,
 ) {
   const paddedWidth = width + 2;
   const paddedHeight = height + 2;
@@ -72,8 +147,13 @@ export function alphaEdgeMaskPixels(
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const index = (y * width + x) * 4;
-      const sourceAlpha = pixels[index + 3] / 255;
-      const cleanAlpha = Math.max(0, Math.min(1, sourceAlpha * 4 - 1.5));
+      const sourceAlpha = pixels[index + 3];
+      const fadeStart = alphaThreshold * 0.75;
+      // A detected translucent body supplies geometry, not effect opacity.
+      // Promote its stable Alpha plateau to a fully opaque mask while keeping
+      // the sub-threshold edge ramp for antialiasing.
+      const fadeLength = Math.max(1, alphaThreshold * (normalizeDetectedBody ? 0.25 : 0.5));
+      const cleanAlpha = Math.max(0, Math.min(1, (sourceAlpha - fadeStart) / fadeLength));
       const distance = Math.sqrt(squaredDistances[(y + 1) * paddedWidth + x + 1]);
       const innerCoverage = Math.max(0, Math.min(1, safeWidth + 1 - distance));
       const alpha = Math.round(255 * cleanAlpha * innerCoverage);
@@ -84,6 +164,76 @@ export function alphaEdgeMaskPixels(
     }
   }
   return result;
+}
+
+/**
+ * Builds a stroke whose placement is measured from the source Alpha contour.
+ * The returned canvas is padded when the stroke needs to exist outside the
+ * source bounds; callers position that canvas symmetrically around the asset.
+ */
+export function alphaPositionedEdgeMaskPixels(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  edgeWidth: number,
+  position: BorderWrapPosition,
+  padding: number,
+  alphaThreshold = 128,
+  normalizeDetectedBody = false,
+) {
+  if (position === "inside" && padding === 0) {
+    return {
+      pixels: alphaEdgeMaskPixels(
+        pixels,
+        width,
+        height,
+        edgeWidth,
+        alphaThreshold,
+        normalizeDetectedBody,
+      ),
+      width,
+      height,
+    };
+  }
+
+  const safePadding = Math.max(0, Math.ceil(padding));
+  const outputWidth = width + safePadding * 2;
+  const outputHeight = height + safePadding * 2;
+  const outputAlpha = new Uint8ClampedArray(outputWidth * outputHeight);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      outputAlpha[(y + safePadding) * outputWidth + x + safePadding] =
+        pixels[(y * width + x) * 4 + 3];
+    }
+  }
+
+  const distanceToInside = squaredDistanceToAlphaClass(outputAlpha, outputWidth, outputHeight, alphaThreshold, true);
+  const distanceToOutside = squaredDistanceToAlphaClass(outputAlpha, outputWidth, outputHeight, alphaThreshold, false);
+  const safeWidth = Math.max(0.2, edgeWidth);
+  const innerLimit = position === "inside" ? safeWidth : position === "center" ? safeWidth / 2 : 0;
+  const outerLimit = position === "outside" ? safeWidth : position === "center" ? safeWidth / 2 : 0;
+  const result = new Uint8ClampedArray(outputWidth * outputHeight * 4);
+  for (let y = 0; y < outputHeight; y += 1) {
+    for (let x = 0; x < outputWidth; x += 1) {
+      const pixelIndex = y * outputWidth + x;
+      const resultIndex = pixelIndex * 4;
+      const sourceAlpha = outputAlpha[pixelIndex];
+      const inside = sourceAlpha >= alphaThreshold;
+      const distance = Math.sqrt((inside ? distanceToOutside : distanceToInside)[pixelIndex]);
+      const limit = inside ? innerLimit : outerLimit;
+      let coverage = Math.max(0, Math.min(1, limit + 1 - distance));
+      if (inside && coverage > 0) {
+        const fadeStart = alphaThreshold * 0.75;
+        const fadeLength = Math.max(1, alphaThreshold * (normalizeDetectedBody ? 0.25 : 0.5));
+        coverage *= Math.max(0, Math.min(1, (sourceAlpha - fadeStart) / fadeLength));
+      }
+      result[resultIndex] = 255;
+      result[resultIndex + 1] = 255;
+      result[resultIndex + 2] = 255;
+      result[resultIndex + 3] = Math.round(coverage * 255);
+    }
+  }
+  return { pixels: result, width: outputWidth, height: outputHeight };
 }
 
 type Point = { x: number; y: number };
