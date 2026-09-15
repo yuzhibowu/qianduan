@@ -6,6 +6,23 @@ import { nativeExportBridge } from "./scripts/native-export-bridge.mjs"
 
 const run = promisify(execFile)
 
+function buildVersion() {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date()).reduce<Record<string, string>>((result, part) => {
+    result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}${parts.month}${parts.day}X${parts.hour}${parts.minute}${parts.second}`;
+}
+
 function localFontsBridge(): Plugin {
   let catalog: Promise<string> | undefined
   return {
@@ -31,6 +48,9 @@ function localFontsBridge(): Plugin {
 }
 
 export default defineConfig({
+  define: {
+    "import.meta.env.VITE_APP_VERSION": JSON.stringify(buildVersion()),
+  },
   plugins: [react(), localFontsBridge(), {
     name: "native-export-bridge",
     configureServer(server) {
