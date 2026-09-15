@@ -6,6 +6,8 @@ private let port: NWEndpoint.Port = 43987
 private let pngSignature = Data([137, 80, 78, 71, 13, 10, 26, 10])
 private let allowedOrigins = [
   "https://qianduan.vercel.app",
+  "https://qianduan-zeta.vercel.app",
+  "https://qianduan-bingbingshow.vercel.app",
   "http://127.0.0.1:",
   "http://localhost:",
 ]
@@ -311,7 +313,7 @@ private final class HelperServer: @unchecked Sendable {
   func applicationDidFinishLaunching(_ notification: Notification) {
     do { try server.start() } catch { NSApp.terminate(nil); return }
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    item.button?.title = "导出助手"
+    item.button?.title = "饼饼SHOW"
     let menu = NSMenu()
     let state = NSMenuItem(title: "高速导出助手运行中", action: nil, keyEquivalent: "")
     state.isEnabled = false; menu.addItem(state); menu.addItem(.separator())
