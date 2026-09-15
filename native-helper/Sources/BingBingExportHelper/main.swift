@@ -311,7 +311,7 @@ private final class HelperServer: @unchecked Sendable {
   func applicationDidFinishLaunching(_ notification: Notification) {
     do { try server.start() } catch { NSApp.terminate(nil); return }
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    item.button?.title = "饼饼导出"
+    item.button?.title = "饼饼SHOW"
     let menu = NSMenu()
     let state = NSMenuItem(title: "高速导出助手运行中", action: nil, keyEquivalent: "")
     state.isEnabled = false; menu.addItem(state); menu.addItem(.separator())

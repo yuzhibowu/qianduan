@@ -12,6 +12,7 @@ swift build --package-path "$helper_root" -c release --arch arm64 --arch x86_64
 /bin/mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 /bin/cp "$helper_root/.build/apple/Products/Release/BingBingExportHelper" "$app_path/Contents/MacOS/BingBingExportHelper"
 /bin/cp "$helper_root/Info.plist" "$app_path/Contents/Info.plist"
+/bin/cp "$helper_root/Resources/AppIcon.icns" "$app_path/Contents/Resources/AppIcon.icns"
 /usr/bin/codesign --force --deep --sign "$sign_identity" "$app_path"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app_path" "$output_root/BingBing-Export-Helper-macOS.zip"
 /bin/rm -rf "$staging_path"
