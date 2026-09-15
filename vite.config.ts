@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from "vite"
 import react from "@vitejs/plugin-react"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
+import { nativeExportBridge } from "./scripts/native-export-bridge.mjs"
 
 const run = promisify(execFile)
 
@@ -30,5 +31,10 @@ function localFontsBridge(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), localFontsBridge()],
+  plugins: [react(), localFontsBridge(), {
+    name: "native-export-bridge",
+    configureServer(server) {
+      server.middlewares.use(nativeExportBridge())
+    },
+  }],
 })

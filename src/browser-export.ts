@@ -17,6 +17,15 @@ import {
   staticBorderAdaptiveCrop,
   type PixelBounds,
 } from "./adaptive-bounds";
+import {
+  appendNativeFrame,
+  cancelNativeExport,
+  detectNativeExporter,
+  downloadNativeExport,
+  finishNativeExport,
+  startNativeExport,
+  type NativeExportSession,
+} from "./native-export";
 
 export type BrowserExportFormat = "mov" | "apng";
 
@@ -78,8 +87,15 @@ export type BrowserExportProgress = {
   progress: number;
 };
 
+export type BrowserExportResult = {
+  outputName: string;
+  frames: number;
+  encoder: "native" | "browser" | "apng";
+};
+
 const activeControllers = new Map<BrowserExportFormat, AbortController>();
 const activeEncoders = new Map<BrowserExportFormat, FFmpeg>();
+const activeNativeSessions = new Map<BrowserExportFormat, NativeExportSession>();
 let coreUrls: Promise<[string, string]> | null = null;
 
 const cancelled = (signal: AbortSignal) => {
@@ -384,7 +400,7 @@ async function calculateAdaptiveCrop(
       ),
     );
     report({
-      stage: "Calculating Visible Area",
+      stage: "正在计算可见区域",
       frame: index + 1,
       totalFrames: session.totalFrames,
       progress: ((index + 1) / session.totalFrames) * 35,
@@ -423,7 +439,7 @@ export async function exportInBrowser(
   format: BrowserExportFormat,
   settings: BrowserExportSettings,
   report: (progress: BrowserExportProgress) => void,
-) {
+): Promise<BrowserExportResult> {
   if (activeControllers.has(format)) throw new Error(`已有 ${format === "mov" ? "MOV" : "PNG 动图"}导出任务正在运行`);
   const controller = new AbortController();
   activeControllers.set(format, controller);
@@ -432,7 +448,7 @@ export async function exportInBrowser(
   let session: RenderSession | null = null;
   try {
     report({
-      stage: "Preparing Renderer",
+      stage: "正在准备渲染器",
       frame: 0,
       totalFrames: validate(settings),
       progress: 1,
@@ -447,7 +463,7 @@ export async function exportInBrowser(
       : { left: 0, top: 0, width: session.width, height: session.height };
     if (staticCrop) {
       report({
-        stage: "Calculating Visible Area",
+        stage: "正在计算可见区域",
         frame: totalFrames,
         totalFrames,
         progress: 35,
@@ -457,17 +473,36 @@ export async function exportInBrowser(
     outputCanvas.width = crop.width;
     outputCanvas.height = crop.height;
     const outputContext = outputCanvas.getContext("2d", { alpha: true })!;
-    const apng = format === "apng"
-      ? new FullFrameApngBuilder(totalFrames, settings.fps)
-      : null;
-    if (format === "mov") {
+    const stamp = Date.now();
+    const outputName = format === "apng"
+      ? `OriginKit-${settings.componentName}-${stamp}.png`
+      : `OriginKit-${settings.componentName}-${stamp}-prores4444xq.mov`;
+    let nativeSession: NativeExportSession | null = null;
+    let apng: FullFrameApngBuilder | null = null;
+    if (format === "mov" || format === "apng") {
       report({
-        stage: "Loading Encoder",
+        stage: format === "mov" ? "正在检测本机 FFmpeg" : "正在检测本机完整帧编码器",
         frame: 0,
         totalFrames,
         progress: settings.adaptiveCanvas ? 36 : 1,
       });
-      ffmpeg = await loadEncoder(format, signal);
+      const native = await detectNativeExporter(format, signal);
+      if (native) {
+        try {
+          nativeSession = await startNativeExport(format, settings.fps, outputName, settings.pngCompression, totalFrames, native.endpoint, signal);
+          activeNativeSessions.set(format, nativeSession);
+          report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : "本机完整帧编码加持，神速", frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
+        } catch {
+          nativeSession = null;
+        }
+      }
+      if (!nativeSession && format === "mov") {
+        report({ stage: "正在加载浏览器编码器", frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
+        ffmpeg = await loadEncoder(format, signal);
+      } else if (!nativeSession) {
+        report({ stage: "正在准备浏览器 PNG 动图编码器", frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
+        apng = new FullFrameApngBuilder(totalFrames, settings.fps);
+      }
     }
     const sequenceEntries: Record<string, Uint8Array> | null = settings.keepFrames ? {} : null;
     const renderProgressStart = settings.adaptiveCanvas ? 35 : 0;
@@ -494,7 +529,9 @@ export async function exportInBrowser(
       if (sequenceEntries) {
         sequenceEntries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await blob.arrayBuffer());
       }
-      if (apng) {
+      if (nativeSession) {
+        await appendNativeFrame(nativeSession, blob, signal);
+      } else if (apng) {
         await apng.addFrame(blob);
       } else if (ffmpeg) {
         const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -508,8 +545,12 @@ export async function exportInBrowser(
       report({
         stage:
           format === "apng"
-            ? "Encoding Full Frames"
-            : "Preparing Encoder",
+            ? nativeSession
+              ? "本机完整帧编码加持，神速"
+              : "正在编码完整 PNG 帧"
+            : nativeSession
+              ? "本机 FFmpeg 加持，神速"
+              : "正在准备浏览器编码器",
         frame: index + 1,
         totalFrames,
         progress: renderProgressStart + ((index + 1) / totalFrames) * (84 - renderProgressStart),
@@ -517,17 +558,22 @@ export async function exportInBrowser(
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     }
     if (sequenceEntries) {
-      report({ stage: "Packaging PNG Sequence", frame: totalFrames, totalFrames, progress: 84 });
+      report({ stage: "正在打包 PNG 序列", frame: totalFrames, totalFrames, progress: 84 });
       const archive = zipSync(sequenceEntries, { level: 0 });
       download(new Blob([archive as BlobPart], { type: "application/zip" }), `OriginKit-${settings.componentName}-${Date.now()}-png-sequence.zip`);
     }
-    if (apng) {
-      const outputName = `OriginKit-${settings.componentName}-${Date.now()}.png`;
-      download(apng.finish(), outputName);
-      return { outputName, frames: totalFrames };
+    if (nativeSession) {
+      report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : "本机完整帧编码加持，神速", frame: totalFrames, totalFrames, progress: 85 });
+      const result = await finishNativeExport(nativeSession, signal);
+      activeNativeSessions.delete(format);
+      nativeSession = null;
+      downloadNativeExport(result.downloadUrl, result.outputName);
+      return { outputName: result.outputName, frames: totalFrames, encoder: "native" };
     }
-    const stamp = Date.now();
-    const outputName = `OriginKit-${settings.componentName}-${stamp}-prores4444xq.mov`;
+    if (apng) {
+      download(apng.finish(), outputName);
+      return { outputName, frames: totalFrames, encoder: "apng" };
+    }
     const args = [
       "-framerate",
       String(settings.fps),
@@ -548,7 +594,7 @@ export async function exportInBrowser(
       outputName,
     ];
     report({
-      stage: "Encoding ProRes",
+      stage: "正在编码 ProRes",
       frame: totalFrames,
       totalFrames,
       progress: 85,
@@ -565,16 +611,21 @@ export async function exportInBrowser(
       }),
       outputName,
     );
-    return { outputName, frames: totalFrames };
+    return { outputName, frames: totalFrames, encoder: "browser" };
   } finally {
+    const nativeSession = activeNativeSessions.get(format);
+    if (nativeSession) cancelNativeExport(nativeSession);
     session?.close();
     ffmpeg?.terminate();
     activeEncoders.delete(format);
+    activeNativeSessions.delete(format);
     activeControllers.delete(format);
   }
 }
 
 export function cancelBrowserExport(format: BrowserExportFormat) {
+  const nativeSession = activeNativeSessions.get(format);
+  if (nativeSession) cancelNativeExport(nativeSession);
   activeControllers.get(format)?.abort(new DOMException("已取消导出", "AbortError"));
   activeEncoders.get(format)?.terminate();
 }

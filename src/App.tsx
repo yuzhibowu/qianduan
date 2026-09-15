@@ -21,6 +21,7 @@ import {
   type BrowserExportFormat,
   type BrowserExportProgress,
 } from "./browser-export";
+import { detectNativeExporter } from "./native-export";
 import ComponentPicker from "./components/ComponentPicker";
 import LocalFontPicker from "./components/LocalFontPicker";
 import type { InteractionSample } from "./interaction";
@@ -69,6 +70,8 @@ type ExportJob = BrowserExportProgress & {
   outputPath: string;
   framesPath: string;
   error: string;
+  successMessage: string;
+  successId: string;
 };
 
 const emptyExportJob = (): ExportJob => ({
@@ -80,6 +83,8 @@ const emptyExportJob = (): ExportJob => ({
   outputPath: "",
   framesPath: "",
   error: "",
+  successMessage: "",
+  successId: "",
 });
 
 type ComponentControls = {
@@ -623,6 +628,10 @@ export default function App() {
     mov: emptyExportJob(),
     apng: emptyExportJob(),
   });
+  const [helperPrompt, setHelperPrompt] = useState<{
+    format: BrowserExportFormat;
+    status: string;
+  } | null>(null);
   const [usdzJob, setUsdzJob] = useState({
     running: false,
     outputPath: "",
@@ -986,7 +995,14 @@ export default function App() {
     setTime(0);
   };
 
-  async function startExport(format: "mov" | "apng") {
+  async function startExport(format: BrowserExportFormat, skipHelperPrompt = false) {
+    if (!skipHelperPrompt && localStorage.getItem("bingbing-helper-browser-fallback") !== "accepted") {
+      const native = await detectNativeExporter(format, new AbortController().signal);
+      if (!native) {
+        setHelperPrompt({ format, status: "" });
+        return;
+      }
+    }
     setExportJobs((current) => ({
       ...current,
       [format]: {
@@ -999,6 +1015,8 @@ export default function App() {
         outputPath: "",
         framesPath: "",
         error: "",
+        successMessage: "",
+        successId: "",
       },
     }));
     try {
@@ -1008,16 +1026,32 @@ export default function App() {
           [format]: { ...current[format], ...progress },
         })),
       );
+      const successMessage = "导出成功";
+      const successId = crypto.randomUUID();
       setExportJobs((current) => ({
         ...current,
         [format]: {
           ...current[format],
           running: false,
-          stage: `Finished · 已下载 ${result.outputName}`,
+          stage: `已下载 ${result.outputName}`,
           progress: 100,
           outputPath: "",
+          successMessage,
+          successId,
         },
       }));
+      window.setTimeout(() => {
+        setExportJobs((current) => current[format].successId === successId
+          ? {
+              ...current,
+              [format]: {
+                ...current[format],
+                successMessage: "",
+                successId: "",
+              },
+            }
+          : current);
+      }, 5000);
     } catch (error) {
       const cancelled =
         error instanceof DOMException && error.name === "AbortError";
@@ -1035,6 +1069,26 @@ export default function App() {
         },
       }));
     }
+  }
+
+  async function retryNativeHelper() {
+    if (!helperPrompt) return;
+    const native = await detectNativeExporter(helperPrompt.format, new AbortController().signal);
+    if (!native) {
+      setHelperPrompt((current) => current ? { ...current, status: "尚未检测到助手，请确认安装后已经打开。" } : current);
+      return;
+    }
+    const format = helperPrompt.format;
+    setHelperPrompt(null);
+    await startExport(format, true);
+  }
+
+  function continueWithBrowserExport() {
+    if (!helperPrompt) return;
+    const format = helperPrompt.format;
+    localStorage.setItem("bingbing-helper-browser-fallback", "accepted");
+    setHelperPrompt(null);
+    void startExport(format, true);
   }
 
   async function revealOutput(path?: string) {
@@ -2491,6 +2545,23 @@ export default function App() {
               />
               无损压缩 PNG 帧（MOV 与 PNG 动图）
             </label>
+            {helperPrompt && (
+              <div className="helper-install-prompt" role="dialog" aria-label="安装高速导出助手">
+                <p>安装“饼饼高速导出助手”，可以使用本机高速导出。</p>
+                <div className="helper-install-actions">
+                  <a
+                    className="btn"
+                    href="https://github.com/yuzhibowu/qianduan/releases/latest/download/BingBing-Export-Helper-macOS.dmg"
+                    onClick={() => setHelperPrompt((current) => current ? { ...current, status: "下载并打开助手后，点击“重新检测”。" } : current)}
+                  >
+                    安装高速助手
+                  </a>
+                  <button className="btn" onClick={() => void retryNativeHelper()}>重新检测</button>
+                  <button className="btn" onClick={continueWithBrowserExport}>继续浏览器导出</button>
+                </div>
+                {helperPrompt.status && <p className="status">{helperPrompt.status}</p>}
+              </div>
+            )}
             <button
               className="btn-primary mov"
               disabled={exportJobs.mov.running}
@@ -2527,6 +2598,12 @@ export default function App() {
                     </>
                   )}
                   {exportJob.error && <p className="error">{formatName} · {exportJob.error}</p>}
+                  {!exportJob.running && exportJob.successMessage && (
+                    <p className="export-success" role="status">
+                      <span>{exportJob.successMessage}</span>
+                      <span className="export-success-check" aria-label="成功">✓</span>
+                    </p>
+                  )}
                   {exportJob.outputPath && (
                     <>
                       <p className="path">{exportJob.outputPath}</p>

@@ -1018,6 +1018,33 @@ button:disabled {
   padding-top: 0;
   border-top: 0;
 }
+.helper-install-prompt {
+  margin: 0 0 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  color: var(--label);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.helper-install-prompt > p { margin: 0; }
+.helper-install-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+.helper-install-actions .btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 32px;
+  padding: 0 5px;
+  color: var(--ink);
+  font-size: 10px;
+  text-decoration: none;
+  white-space: nowrap;
+}
 .btn-primary.mov {
   background: var(--surface);
   color: var(--ink);
@@ -1067,6 +1094,20 @@ button:disabled {
 .error {
   color: #d70015;
   font-size: 11px;
+}
+.export-success {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 9px 0 0;
+  color: var(--label);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.export-success-check {
+  color: #22a447;
+  font-size: 12px;
+  font-weight: 750;
 }
 :root[data-theme="dark"] {
   --page: #000;

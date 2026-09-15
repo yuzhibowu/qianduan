@@ -5,6 +5,7 @@ import { homedir } from "node:os"
 import { resolve } from "node:path"
 import { chromium } from "playwright-core"
 import { PNG } from "pngjs"
+import { nativeExportBridge } from "./scripts/native-export-bridge.mjs"
 
 const app = express()
 const port = 5173
@@ -21,6 +22,7 @@ let job = { running: false, stage: "准备就绪", frame: 0, totalFrames: 0, pro
 let activeAbortController = null
 let activeChild = null
 
+app.use(nativeExportBridge())
 app.use(express.json({ limit: "32kb" }))
 app.use(express.static(resolve(projectRoot, "dist")))
 
@@ -79,9 +81,8 @@ function normalizedSettings(input) {
     speed: number("speed", 100, 0, 200), ringSpeed: number("ringSpeed", 50, 0, 100),
     distance: number("distance", 20, 0.5, 80), count: Math.round(number("count", 8, 1, 16)),
     coinSize: number("coinSize", 100, 20, 180), spread: number("spread", 100, 30, 180),
-    keepFrames: input.keepFrames === true,
     format: input.format === "apng" ? "apng" : "mov",
-    pngCompression: input.pngCompression !== false,
+    pngCompression: input.pngCompression === true,
   }
 }
 
@@ -130,13 +131,13 @@ async function exportMovie(settings, signal) {
     const stream = JSON.parse(result.stdout).streams?.[0]
     const validCodec = isApng ? stream?.codec_name === "apng" && stream?.pix_fmt === "rgba" : stream?.codec_name === "prores" && stream?.profile === "4444" && stream?.pix_fmt.startsWith("yuva444p")
     if (!stream || !validCodec || Number(stream.nb_read_frames) !== settings.totalFrames) throw new Error(isApng ? "PNG 动图文件验证失败" : "ProRes 4444 文件验证失败")
-    job = { ...job, running: false, stage: "Finished", progress: 100, outputPath, framesPath: settings.keepFrames ? frameDirectory : "" }
+    job = { ...job, running: false, stage: "Finished", progress: 100, outputPath, framesPath: "" }
   } catch (error) {
     const cancelled = signal.aborted || (error instanceof DOMException && error.name === "AbortError")
     job = { ...job, running: false, stage: cancelled ? "已取消" : "导出失败", error: cancelled ? "" : error instanceof Error ? error.message : String(error) }
   } finally {
     await browser?.close().catch(() => {})
-    if (!settings.keepFrames || signal.aborted) await rm(frameDirectory, { recursive: true, force: true })
+    await rm(frameDirectory, { recursive: true, force: true })
     activeAbortController = null
   }
 }

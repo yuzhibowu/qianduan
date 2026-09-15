@@ -11,6 +11,7 @@
     "export:frame": "node scripts/export-frame.mjs",
     "export:sequence": "node scripts/export-sequence.mjs",
     "encode:prores": "node scripts/encode-prores.mjs",
+    "helper:build": "zsh scripts/package-native-helper.sh",
     "export:usdz:static": "node scripts/export-coin-usdz.mjs",
     "export:usdz:animated": "node scripts/export-coin-usdz.mjs artifacts/coin-loader-animated.usdz --duration 3 --fps 60"
   },
