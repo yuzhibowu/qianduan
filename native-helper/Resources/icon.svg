@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs><clipPath id="rounded-safe"><rect x="100" y="100" width="824" height="824" rx="220"/></clipPath></defs>
   <rect x="100" y="100" width="824" height="824" rx="220" fill="#ffffff" stroke="#e5e5e7" stroke-width="10"/>
-  <image href="logo-source.png" x="145" y="290" width="734" height="507" preserveAspectRatio="xMidYMid meet"/>
+  <image href="logo-source.png" x="145" y="290" width="734" height="507" preserveAspectRatio="xMidYMid meet" clip-path="url(#rounded-safe)"/>
 </svg>
