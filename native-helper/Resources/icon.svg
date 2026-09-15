@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <rect x="48" y="48" width="928" height="928" rx="248" fill="#ffffff" stroke="#e5e5e7" stroke-width="10"/>
-  <text x="512" y="490" text-anchor="middle" font-family="PingFang SC, sans-serif" font-size="150" font-weight="800" fill="#1d1d1f">饼饼SHOW</text>
+  <text x="512" y="490" text-anchor="middle" font-family="PingFang SC, sans-serif" font-size="150" font-weight="900" fill="#1d1d1f" stroke="#1d1d1f" stroke-width="3" paint-order="stroke">饼饼SHOW</text>
   <rect x="222" y="560" width="580" height="22" rx="11" fill="#ffe600"/>
 </svg>
