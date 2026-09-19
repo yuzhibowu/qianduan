@@ -59,6 +59,20 @@ function inspectPng(buffer) {
   return { ihdr, ancillary, imageData }
 }
 
+function unpackFrameBatch(buffer) {
+  const frames = []
+  for (let offset = 0; offset < buffer.length;) {
+    if (offset + 4 > buffer.length) throw new Error("批量帧头不完整")
+    const length = buffer.readUInt32BE(offset)
+    offset += 4
+    if (length < 8 || offset + length > buffer.length) throw new Error("批量帧数据不完整")
+    frames.push(buffer.subarray(offset, offset + length))
+    offset += length
+  }
+  if (frames.length < 1 || frames.length > 16) throw new Error("单批帧数超出安全范围")
+  return frames
+}
+
 async function writeStream(stream, bytes) {
   if (!stream.write(bytes)) await new Promise((resolveDrain) => stream.once("drain", resolveDrain))
 }
@@ -111,7 +125,8 @@ async function capabilities() {
     ffmpegVersion: version.stdout.split("\n")[0] || "ffmpeg",
     prores4444: encoders.stdout.includes("prores_ks"),
     nativeApng: true,
-  })).catch(() => ({ available: true, prores4444: false, nativeApng: true }))
+    frameBatch: true,
+  })).catch(() => ({ available: true, prores4444: false, nativeApng: true, frameBatch: true }))
   return capabilityPromise
 }
 
@@ -203,6 +218,19 @@ export function nativeExportBridge() {
         if (job.format === "apng") await appendFullFrameApng(job, frame)
         else if (!job.child.stdin.write(frame)) await new Promise((resolveDrain) => job.child.stdin.once("drain", resolveDrain))
         job.frames += 1
+        return json(response, 200, { frame: job.frames })
+      }
+      const framesMatch = url.pathname.match(/^\/__native-export\/frames\/([^/]+)$/)
+      if (request.method === "POST" && framesMatch) {
+        const job = jobs.get(framesMatch[1])
+        if (!job) return json(response, 404, { error: "本机导出任务不存在" })
+        const frames = unpackFrameBatch(await bodyBuffer(request))
+        if (job.frames + frames.length > job.expectedFrames) return json(response, 400, { error: "批量帧数超出预期" })
+        for (const frame of frames) {
+          if (job.format === "apng") await appendFullFrameApng(job, frame)
+          else if (!job.child.stdin.write(frame)) await new Promise((resolveDrain) => job.child.stdin.once("drain", resolveDrain))
+          job.frames += 1
+        }
         return json(response, 200, { frame: job.frames })
       }
       const finishMatch = url.pathname.match(/^\/__native-export\/finish\/([^/]+)$/)

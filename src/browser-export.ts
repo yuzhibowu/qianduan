@@ -19,6 +19,7 @@ import {
 } from "./adaptive-bounds";
 import {
   appendNativeFrame,
+  appendNativeFrames,
   cancelNativeExport,
   detectNativeExporter,
   downloadNativeExport,
@@ -489,7 +490,16 @@ export async function exportInBrowser(
       const native = await detectNativeExporter(format, signal);
       if (native) {
         try {
-          nativeSession = await startNativeExport(format, settings.fps, outputName, settings.pngCompression, totalFrames, native.endpoint, signal);
+          nativeSession = await startNativeExport(
+            format,
+            settings.fps,
+            outputName,
+            settings.pngCompression,
+            totalFrames,
+            native.endpoint,
+            Boolean(native.frameBatch),
+            signal,
+          );
           activeNativeSessions.set(format, nativeSession);
           report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : "本机完整帧编码加持，神速", frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
         } catch {
@@ -506,6 +516,23 @@ export async function exportInBrowser(
     }
     const sequenceEntries: Record<string, Uint8Array> | null = settings.keepFrames ? {} : null;
     const renderProgressStart = settings.adaptiveCanvas ? 35 : 0;
+    let nativeBatch: Blob[] = [];
+    let nativeBatchBytes = 0;
+    let pendingNativeBatch: Promise<Error | null> | null = null;
+    const flushNativeBatch = async () => {
+      if (!nativeSession || nativeBatch.length === 0) return;
+      const frames = nativeBatch;
+      nativeBatch = [];
+      nativeBatchBytes = 0;
+      if (pendingNativeBatch) {
+        const error = await pendingNativeBatch;
+        if (error) throw error;
+      }
+      pendingNativeBatch = appendNativeFrames(nativeSession, frames, signal).then(
+        () => null,
+        (error: unknown) => error instanceof Error ? error : new Error(String(error)),
+      );
+    };
     for (let index = 0; index < totalFrames; index += 1) {
       cancelled(signal);
       const source = await session.renderFrame(index);
@@ -530,7 +557,15 @@ export async function exportInBrowser(
         sequenceEntries[`OriginKit-${settings.componentName}-${String(index + 1).padStart(5, "0")}.png`] = new Uint8Array(await blob.arrayBuffer());
       }
       if (nativeSession) {
-        await appendNativeFrame(nativeSession, blob, signal);
+        if (nativeSession.frameBatch) {
+          nativeBatch.push(blob);
+          nativeBatchBytes += blob.size;
+          if (nativeBatch.length >= 6 || nativeBatchBytes >= 24 * 1024 * 1024) {
+            await flushNativeBatch();
+          }
+        } else {
+          await appendNativeFrame(nativeSession, blob, signal);
+        }
       } else if (apng) {
         await apng.addFrame(blob);
       } else if (ffmpeg) {
@@ -556,6 +591,12 @@ export async function exportInBrowser(
         progress: renderProgressStart + ((index + 1) / totalFrames) * (84 - renderProgressStart),
       });
       await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+    await flushNativeBatch();
+    if (pendingNativeBatch) {
+      const error = await pendingNativeBatch;
+      if (error) throw error;
+      pendingNativeBatch = null;
     }
     if (sequenceEntries) {
       report({ stage: "正在打包 PNG 序列", frame: totalFrames, totalFrames, progress: 84 });

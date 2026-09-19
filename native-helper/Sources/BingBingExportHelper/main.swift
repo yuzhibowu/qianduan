@@ -81,6 +81,21 @@ private func inspectPng(_ data: Data) throws -> PngParts {
   return PngParts(ihdr: ihdr, ancillary: ancillary, imageData: imageData)
 }
 
+private func unpackFrameBatch(_ data: Data) throws -> [Data] {
+  var frames: [Data] = []
+  var offset = 0
+  while offset < data.count {
+    guard offset + 4 <= data.count else { throw HelperError.message("批量帧头不完整") }
+    let length = data[offset..<(offset + 4)].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+    offset += 4
+    guard length >= 8, offset + Int(length) <= data.count else { throw HelperError.message("批量帧数据不完整") }
+    frames.append(Data(data[offset..<(offset + Int(length))]))
+    offset += Int(length)
+  }
+  guard (1...16).contains(frames.count) else { throw HelperError.message("单批帧数超出安全范围") }
+  return frames
+}
+
 private enum HelperError: Error { case message(String) }
 
 private final class ExportJob: @unchecked Sendable {
@@ -205,6 +220,7 @@ private final class HelperServer: @unchecked Sendable {
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
       "Access-Control-Allow-Private-Network": "true",
+      "Access-Control-Max-Age": "86400",
       "Vary": "Origin",
     ]
   }
@@ -262,7 +278,7 @@ private final class HelperServer: @unchecked Sendable {
     if request.method == "OPTIONS" { return send(connection, status: 204, headers: headers) }
     do {
       if request.method == "GET" && request.path == "/v1/capabilities" {
-        return send(connection, headers: headers, body: json(["available": true, "prores4444": ffmpegPath() != nil, "nativeApng": true, "helperVersion": "0.1.0"]))
+        return send(connection, headers: headers, body: json(["available": true, "prores4444": ffmpegPath() != nil, "nativeApng": true, "frameBatch": true, "helperVersion": "0.2.0"]))
       }
       if request.method == "POST" && request.path == "/v1/start" {
         let input = try JSONSerialization.jsonObject(with: request.body) as? [String: Any] ?? [:]
@@ -293,6 +309,12 @@ private final class HelperServer: @unchecked Sendable {
       let pieces = request.path.split(separator: "/").map(String.init)
       if pieces.count == 3, pieces[0] == "v1", let job = jobs[pieces[2]] {
         if request.method == "POST" && pieces[1] == "frame" { try job.append(request.body); return send(connection, headers: headers, body: json(["frame": job.frames])) }
+        if request.method == "POST" && pieces[1] == "frames" {
+          let frames = try unpackFrameBatch(request.body)
+          guard job.frames + frames.count <= job.expectedFrames else { throw HelperError.message("批量帧数超出预期") }
+          for frame in frames { try job.append(frame) }
+          return send(connection, headers: headers, body: json(["frame": job.frames]))
+        }
         if request.method == "POST" && pieces[1] == "finish" { try job.finish(); return send(connection, headers: headers, body: json(["outputName": job.outputName, "downloadUrl": "http://127.0.0.1:\(port.rawValue)/v1/download/\(job.id)"])) }
         if request.method == "POST" && pieces[1] == "cancel" { job.cancel(); jobs.removeValue(forKey: job.id); return send(connection, headers: headers, body: json(["cancelled": true])) }
         if request.method == "GET" && pieces[1] == "download" {

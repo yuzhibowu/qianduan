@@ -2,6 +2,7 @@ export type NativeExportSession = {
   id: string;
   outputName: string;
   endpoint: string;
+  frameBatch: boolean;
 };
 
 export type NativeExportFormat = "mov" | "apng";
@@ -11,6 +12,7 @@ type NativeCapabilities = {
   ffmpegVersion?: string;
   prores4444?: boolean;
   nativeApng?: boolean;
+  frameBatch?: boolean;
 };
 
 const endpoints = location.hostname === "127.0.0.1" || location.hostname === "localhost"
@@ -49,6 +51,7 @@ export async function startNativeExport(
   pngCompression: boolean,
   totalFrames: number,
   endpoint: string,
+  frameBatch: boolean,
   signal: AbortSignal,
 ) {
   const response = await fetch(`${endpoint}/start`, {
@@ -58,7 +61,11 @@ export async function startNativeExport(
     signal,
   });
   if (!response.ok) throw new Error(await responseError(response));
-  return { ...await response.json() as Omit<NativeExportSession, "endpoint">, endpoint };
+  return {
+    ...await response.json() as Omit<NativeExportSession, "endpoint" | "frameBatch">,
+    endpoint,
+    frameBatch,
+  };
 }
 
 export async function appendNativeFrame(
@@ -70,6 +77,30 @@ export async function appendNativeFrame(
     method: "POST",
     headers: { "Content-Type": "image/png" },
     body: frame,
+    signal,
+  });
+  if (!response.ok) throw new Error(await responseError(response));
+}
+
+export async function appendNativeFrames(
+  session: NativeExportSession,
+  frames: Blob[],
+  signal: AbortSignal,
+) {
+  if (!session.frameBatch || frames.length === 1) {
+    for (const frame of frames) await appendNativeFrame(session, frame, signal);
+    return;
+  }
+  const parts: BlobPart[] = [];
+  for (const frame of frames) {
+    const size = new Uint8Array(4);
+    new DataView(size.buffer).setUint32(0, frame.size, false);
+    parts.push(size, frame);
+  }
+  const response = await fetch(`${session.endpoint}/frames/${encodeURIComponent(session.id)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: new Blob(parts, { type: "application/octet-stream" }),
     signal,
   });
   if (!response.ok) throw new Error(await responseError(response));
