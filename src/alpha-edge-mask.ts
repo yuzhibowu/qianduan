@@ -236,42 +236,6 @@ export function alphaPositionedEdgeMaskPixels(
   return { pixels: result, width: outputWidth, height: outputHeight };
 }
 
-type Point = { x: number; y: number };
-
-const cross = (origin: Point, left: Point, right: Point) =>
-  (left.x - origin.x) * (right.y - origin.y) -
-  (left.y - origin.y) * (right.x - origin.x);
-
-function convexHull(points: Point[]) {
-  if (points.length <= 1) return points;
-  const sorted = [...points].sort((left, right) => left.x - right.x || left.y - right.y);
-  const half = (values: Point[]) => {
-    const result: Point[] = [];
-    for (const point of values) {
-      while (result.length >= 2 && cross(result[result.length - 2], result[result.length - 1], point) <= 0) {
-        result.pop();
-      }
-      result.push(point);
-    }
-    return result;
-  };
-  const lower = half(sorted);
-  const upper = half([...sorted].reverse());
-  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
-}
-
-function pointInsidePolygon(x: number, y: number, polygon: Point[]) {
-  let inside = false;
-  for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current++) {
-    const a = polygon[current];
-    const b = polygon[previous];
-    if (((a.y > y) !== (b.y > y)) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) {
-      inside = !inside;
-    }
-  }
-  return inside;
-}
-
 export function alphaIslandCount(
   pixels: Uint8ClampedArray,
   width: number,
@@ -313,10 +277,11 @@ export function alphaIslandCount(
 }
 
 /**
- * Treats disconnected Alpha islands as one piece of artwork. The filled convex
- * envelope provides one unambiguous exterior perimeter instead of outlining
- * every glyph and detached stroke independently. Four sub-pixel samples keep
- * the generated boundary antialiased before the Euclidean edge mask is built.
+ * Treats disconnected Alpha islands as one horizontal piece of artwork. Each
+ * column follows the highest and lowest visible brush pixel, so a light moving
+ * across the top or bottom stays attached to the real glyph silhouette instead
+ * of following a convex polygon or circling every glyph independently. Empty
+ * columns between glyphs are bridged by interpolation to keep one closed path.
  */
 export function alphaGroupEnvelopePixels(
   pixels: Uint8ClampedArray,
@@ -324,43 +289,62 @@ export function alphaGroupEnvelopePixels(
   height: number,
   alphaThreshold = 128,
 ) {
-  const candidates: Point[] = [];
-  for (let y = 0; y < height; y += 1) {
-    let left = width;
-    let right = -1;
-    for (let x = 0; x < width; x += 1) {
+  const top = new Float64Array(width);
+  const bottom = new Float64Array(width);
+  top.fill(Number.NaN);
+  bottom.fill(Number.NaN);
+  let firstColumn = width;
+  let lastColumn = -1;
+  for (let x = 0; x < width; x += 1) {
+    let firstY = -1;
+    let lastY = -1;
+    for (let y = 0; y < height; y += 1) {
       if (pixels[(y * width + x) * 4 + 3] < alphaThreshold) continue;
-      left = Math.min(left, x);
-      right = Math.max(right, x);
+      if (firstY < 0) firstY = y;
+      lastY = y;
     }
-    if (right < left) continue;
-    candidates.push(
-      { x: left, y },
-      { x: right + 1, y },
-      { x: right + 1, y: y + 1 },
-      { x: left, y: y + 1 },
-    );
+    if (firstY < 0) continue;
+    const firstAlpha = pixels[(firstY * width + x) * 4 + 3] / 255;
+    const lastAlpha = pixels[(lastY * width + x) * 4 + 3] / 255;
+    top[x] = firstY + 1 - firstAlpha;
+    bottom[x] = lastY + lastAlpha;
+    firstColumn = Math.min(firstColumn, x);
+    lastColumn = Math.max(lastColumn, x);
   }
-  const hull = convexHull(candidates);
   const result = new Uint8ClampedArray(width * height * 4);
-  if (hull.length < 3) return result;
-  const left = Math.max(0, Math.floor(hull.reduce((value, point) => Math.min(value, point.x), width)));
-  const right = Math.min(width - 1, Math.ceil(hull.reduce((value, point) => Math.max(value, point.x), 0)));
-  const top = Math.max(0, Math.floor(hull.reduce((value, point) => Math.min(value, point.y), height)));
-  const bottom = Math.min(height - 1, Math.ceil(hull.reduce((value, point) => Math.max(value, point.y), 0)));
-  const samples = [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
-  for (let y = top; y <= bottom; y += 1) {
-    for (let x = left; x <= right; x += 1) {
-      let coverage = 0;
-      for (const [offsetX, offsetY] of samples) {
-        if (pointInsidePolygon(x + offsetX, y + offsetY, hull)) coverage += 1;
+  if (lastColumn < firstColumn) return result;
+
+  let previous = firstColumn;
+  for (let x = firstColumn + 1; x <= lastColumn; x += 1) {
+    if (Number.isNaN(top[x])) continue;
+    const gap = x - previous;
+    if (gap > 1) {
+      for (let offset = 1; offset < gap; offset += 1) {
+        const amount = offset / gap;
+        top[previous + offset] = top[previous] + (top[x] - top[previous]) * amount;
+        bottom[previous + offset] = bottom[previous] + (bottom[x] - bottom[previous]) * amount;
       }
-      if (coverage === 0) continue;
+    }
+    previous = x;
+  }
+
+  for (let x = firstColumn; x <= lastColumn; x += 1) {
+    // A steep brush tip can move by several rows in one column. Include the
+    // previous column's vertical span so the directional envelope remains one
+    // continuous raster body instead of splitting into tiny diagonal islands.
+    const previousX = Math.max(firstColumn, x - 1);
+    const start = Math.min(top[x], top[previousX]);
+    const end = Math.max(bottom[x], bottom[previousX]);
+    const startY = Math.max(0, Math.floor(start));
+    const endY = Math.min(height - 1, Math.ceil(end) - 1);
+    for (let y = startY; y <= endY; y += 1) {
+      const coverage = Math.max(0, Math.min(y + 1, end) - Math.max(y, start));
+      if (coverage <= 0) continue;
       const index = (y * width + x) * 4;
       result[index] = 255;
       result[index + 1] = 255;
       result[index + 2] = 255;
-      result[index + 3] = Math.round((coverage / samples.length) * 255);
+      result[index + 3] = Math.round(coverage * 255);
     }
   }
   return result;

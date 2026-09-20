@@ -117,4 +117,39 @@ describe("Euclidean Alpha edge mask", () => {
     expect(alphaAt(envelope, width, 10, 5)).toBe(255);
     expect(alphaAt(envelope, width, 0, 0)).toBe(0);
   });
+
+  it("follows the top and bottom brush silhouette instead of a convex polygon", () => {
+    const width = 21;
+    const height = 14;
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    const block = (fromX: number, toX: number, fromY: number, toY: number) => {
+      for (let y = fromY; y <= toY; y += 1) {
+        for (let x = fromX; x <= toX; x += 1) pixels[(y * width + x) * 4 + 3] = 255;
+      }
+    };
+    block(1, 4, 1, 8);
+    block(8, 12, 6, 11);
+    block(16, 19, 2, 9);
+
+    const envelope = alphaGroupEnvelopePixels(pixels, width, height);
+
+    expect(alphaAt(envelope, width, 10, 2)).toBe(0);
+    expect(alphaAt(envelope, width, 10, 6)).toBe(255);
+    expect(alphaAt(envelope, width, 6, 4)).toBeGreaterThan(0);
+    expect(alphaIslandCount(envelope, width, height)).toBe(1);
+  });
+
+  it("keeps steep brush tips connected across adjacent columns", () => {
+    const width = 12;
+    const height = 20;
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    const points = [[1, 2], [2, 8], [3, 14], [8, 4], [9, 10], [10, 16]];
+    for (const [x, y] of points) pixels[(y * width + x) * 4 + 3] = 255;
+
+    const envelope = alphaGroupEnvelopePixels(pixels, width, height);
+
+    expect(alphaIslandCount(envelope, width, height)).toBe(1);
+    expect(alphaAt(envelope, width, 2, 5)).toBe(255);
+    expect(alphaAt(envelope, width, 6, 9)).toBe(255);
+  });
 });
