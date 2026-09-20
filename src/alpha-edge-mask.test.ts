@@ -152,4 +152,24 @@ describe("Euclidean Alpha edge mask", () => {
     expect(alphaAt(envelope, width, 2, 5)).toBe(255);
     expect(alphaAt(envelope, width, 6, 9)).toBe(255);
   });
+
+  it("turns a detached-stroke height jump into an outer ramp instead of a vertical wall", () => {
+    const width = 18;
+    const height = 20;
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    for (let x = 1; x <= 6; x += 1) {
+      for (let y = 2; y <= 17; y += 1) pixels[(y * width + x) * 4 + 3] = 255;
+    }
+    for (let x = 10; x <= 16; x += 1) {
+      for (let y = 10; y <= 17; y += 1) pixels[(y * width + x) * 4 + 3] = 255;
+    }
+
+    const envelope = alphaGroupEnvelopePixels(pixels, width, height);
+
+    expect(alphaIslandCount(envelope, width, height)).toBe(1);
+    expect(alphaAt(envelope, width, 7, 3)).toBe(255);
+    expect(alphaAt(envelope, width, 8, 4)).toBe(255);
+    expect(alphaAt(envelope, width, 9, 5)).toBe(255);
+    expect(alphaAt(envelope, width, 10, 2)).toBe(0);
+  });
 });

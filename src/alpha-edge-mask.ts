@@ -278,10 +278,11 @@ export function alphaIslandCount(
 
 /**
  * Treats disconnected Alpha islands as one horizontal piece of artwork. Each
- * column follows the highest and lowest visible brush pixel, so a light moving
- * across the top or bottom stays attached to the real glyph silhouette instead
- * of following a convex polygon or circling every glyph independently. Empty
- * columns between glyphs are bridged by interpolation to keep one closed path.
+ * column starts from the highest and lowest visible brush pixel. A one-
+ * dimensional concave hull then limits abrupt vertical jumps while only
+ * expanding outwards, so detached strokes stay inside the envelope without
+ * creating artificial straight vertical walls. Empty columns between glyphs
+ * are bridged to keep one closed path instead of one loop per glyph.
  */
 export function alphaGroupEnvelopePixels(
   pixels: Uint8ClampedArray,
@@ -328,13 +329,25 @@ export function alphaGroupEnvelopePixels(
     previous = x;
   }
 
+  // The raw highest/lowest samples jump whenever another detached stroke
+  // becomes the extreme sample. Turning that jump directly into a filled mask
+  // creates the conspicuous ruler-straight vertical lines seen beside complex
+  // Chinese glyphs. These two passes compute a slope-limited outer envelope:
+  // top may only move outwards (up) and bottom only outwards (down), so no real
+  // brush pixel is clipped while the synthetic connection becomes a ramp.
+  const maximumStep = Math.max(1, Math.min(2.5, Math.min(width, height) / 180));
+  for (let x = firstColumn + 1; x <= lastColumn; x += 1) {
+    top[x] = Math.min(top[x], top[x - 1] + maximumStep);
+    bottom[x] = Math.max(bottom[x], bottom[x - 1] - maximumStep);
+  }
+  for (let x = lastColumn - 1; x >= firstColumn; x -= 1) {
+    top[x] = Math.min(top[x], top[x + 1] + maximumStep);
+    bottom[x] = Math.max(bottom[x], bottom[x + 1] - maximumStep);
+  }
+
   for (let x = firstColumn; x <= lastColumn; x += 1) {
-    // A steep brush tip can move by several rows in one column. Include the
-    // previous column's vertical span so the directional envelope remains one
-    // continuous raster body instead of splitting into tiny diagonal islands.
-    const previousX = Math.max(firstColumn, x - 1);
-    const start = Math.min(top[x], top[previousX]);
-    const end = Math.max(bottom[x], bottom[previousX]);
+    const start = top[x];
+    const end = bottom[x];
     const startY = Math.max(0, Math.floor(start));
     const endY = Math.min(height - 1, Math.ceil(end) - 1);
     for (let y = startY; y <= endY; y += 1) {
