@@ -52,6 +52,7 @@ import {
 import { adaptNeonToAspect } from "./neon-adaptation";
 import { borderLoopDuration, neonLoopDuration } from "./border-timing";
 import { coinModelFormat, defaultCoinModelSlot, type CoinModelAsset, type CoinModelSlot } from "./coin-model-asset";
+import { DEFAULT_COIN_FAN, type CoinFanSettings } from "./coin-fan";
 import {
   inspectShinyGraphic,
   shinyGraphicKind,
@@ -531,6 +532,10 @@ export default function App() {
       ? window.parent.__originKitCoinModelSlots?.[key] ?? []
       : [];
   })();
+  const queryCoinFan: CoinFanSettings = (() => {
+    try { return { ...DEFAULT_COIN_FAN, ...JSON.parse(query.get("coinFan") ?? "{}") }; }
+    catch { return DEFAULT_COIN_FAN; }
+  })();
   const queryBorderIllustration: BorderIllustration | undefined = (() => {
     try {
       const key = query.get("borderIllustrationKey");
@@ -600,6 +605,7 @@ export default function App() {
   const [shinyGraphicError, setShinyGraphicError] = useState("");
   const [coinModel, setCoinModel] = useState<CoinModelAsset | undefined>(queryCoinModel);
   const [coinModelSlots, setCoinModelSlots] = useState<CoinModelSlot[]>(queryCoinModelSlots);
+  const [coinFan, setCoinFan] = useState<CoinFanSettings>(queryCoinFan);
   const [coinModelAssetRevision, setCoinModelAssetRevision] = useState(0);
   const [selectedCoinModelSlot, setSelectedCoinModelSlot] = useState(0);
   const [coinModelMode, setCoinModelMode] = useState<"coin" | "model">(queryCoinModel ? "model" : "coin");
@@ -827,6 +833,7 @@ export default function App() {
           appearance={appearance}
           coinModel={queryCoinModel}
           coinModelSlots={queryCoinModelSlots}
+          coinFan={queryCoinFan}
         />
       </div>
     );
@@ -890,6 +897,7 @@ export default function App() {
       backTexture: appearance.backTexture,
       coinModel: activeCoinModel,
       coinModelSlots: activeCoinModel ? coinModelSlots : undefined,
+      coinFan,
     }),
     [
       componentId,
@@ -940,6 +948,7 @@ export default function App() {
       appearance.backTexture,
       activeCoinModel,
       coinModelSlots,
+      coinFan,
     ],
   );
   // Current USDZ geometries are rings, wedges, tori or a curved band rather
@@ -1129,6 +1138,7 @@ export default function App() {
         ? await (await import("./coin-model")).buildCoinModelUsdz({
             asset: activeCoinModel,
             slots: coinModelSlots,
+            fan: coinFan,
             duration,
             delay,
             fps,
@@ -1504,6 +1514,7 @@ export default function App() {
               coinModel={activeCoinModel}
               coinModelSlots={coinModelSlots}
               coinModelAssetRevision={coinModelAssetRevision}
+              coinFan={coinFan}
             />
           </div>
         </div>
@@ -2458,6 +2469,17 @@ export default function App() {
                     </>;
                   })()}
                 </div>}
+                <div className="coin-fan-controls">
+                  <label className="check-row">
+                    <input type="checkbox" checked={coinFan.enabled && Boolean(activeCoinModel)} disabled={!activeCoinModel} onChange={(event) => setCoinFan((current) => ({ ...current, enabled: event.target.checked }))} />
+                    <span>扇面展开</span>
+                  </label>
+                  {!activeCoinModel && <small>导入 3D 模型后可用</small>}
+                  {activeCoinModel && coinFan.enabled && <>
+                    <Slider label="展开时长" value={coinFan.opening} min={5} max={40} step={1} display={`${coinFan.opening}%`} onChange={(opening) => setCoinFan((current) => ({ ...current, opening }))} />
+                    <Slider label="收拢时长" value={coinFan.closing} min={5} max={40} step={1} display={`${coinFan.closing}%`} onChange={(closing) => setCoinFan((current) => ({ ...current, closing }))} />
+                  </>}
+                </div>
                 <Slider
                   label={activeCoinModel ? "模型翻转" : "硬币翻转"}
                   value={speed}

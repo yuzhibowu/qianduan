@@ -20,6 +20,7 @@ import InspiraRipple, { type InspiraRippleSettings } from "./components/InspiraR
 import type { DiscCurveSettings } from "./disc-curve";
 import type { ShinyGraphic } from "./shiny-graphic";
 import type { CoinModelAsset, CoinModelSlot } from "./coin-model-asset";
+import type { CoinFanSettings } from "./coin-fan";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -61,6 +62,7 @@ export type MotionComponentDefinition = {
       coinModel?: CoinModelAsset;
       coinModelSlots?: CoinModelSlot[];
       coinModelAssetRevision?: number;
+      coinFan?: CoinFanSettings;
     }
   >;
   exportCapabilities: ExportCapability[];

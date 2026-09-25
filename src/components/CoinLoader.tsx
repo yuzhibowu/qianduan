@@ -4,6 +4,7 @@ import { evaluateCoinMotion, TAU } from "../time";
 import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "../appearance";
 import { WebGLRenderer } from "three";
 import type { CoinModelAsset, CoinModelSlot } from "../coin-model-asset";
+import type { CoinFanSettings } from "../coin-fan";
 
 type RGB = [number, number, number];
 type M4 = Float32Array;
@@ -29,6 +30,7 @@ interface Props {
   coinModel?: CoinModelAsset;
   coinModelSlots?: CoinModelSlot[];
   coinModelAssetRevision?: number;
+  coinFan?: CoinFanSettings;
 }
 
 const DEFAULT_COINS: CoinsGroup = {
@@ -518,13 +520,14 @@ function ImportedCoinLoader({
   coinModel,
   coinModelSlots = [],
   coinModelAssetRevision = 0,
+  coinFan,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const slotsRef = useRef(coinModelSlots);
   slotsRef.current = coinModelSlots;
   const renderRef = useRef<((time: number) => void) | null>(null);
-  const liveRef = useRef({ speed, distance, timeSeconds, loopDuration, ringSpeed: coins?.ringSpeed ?? DEFAULT_COINS.ringSpeed, coinSize: coins?.coinSize ?? DEFAULT_COINS.coinSize, spread: coins?.spread ?? DEFAULT_COINS.spread });
-  liveRef.current = { speed, distance, timeSeconds, loopDuration, ringSpeed: coins?.ringSpeed ?? DEFAULT_COINS.ringSpeed, coinSize: coins?.coinSize ?? DEFAULT_COINS.coinSize, spread: coins?.spread ?? DEFAULT_COINS.spread };
+  const liveRef = useRef({ speed, distance, timeSeconds, loopDuration, ringSpeed: coins?.ringSpeed ?? DEFAULT_COINS.ringSpeed, coinSize: coins?.coinSize ?? DEFAULT_COINS.coinSize, spread: coins?.spread ?? DEFAULT_COINS.spread, fan: coinFan });
+  liveRef.current = { speed, distance, timeSeconds, loopDuration, ringSpeed: coins?.ringSpeed ?? DEFAULT_COINS.ringSpeed, coinSize: coins?.coinSize ?? DEFAULT_COINS.coinSize, spread: coins?.spread ?? DEFAULT_COINS.spread, fan: coinFan };
   const settings = { ...DEFAULT_COINS, ...coins };
 
   useEffect(() => {
@@ -565,9 +568,12 @@ function ImportedCoinLoader({
             0,
           );
           coin.scale.setScalar(current.coinSize / 100);
-          modelApi.applyCoinModelSlot(coin.children[0] as import("three").Group, slotsRef.current[index]);
+          coin.userData.baseScale = current.coinSize / 100;
+          const content = coin.children[0] as import("three").Group;
+          modelApi.applyCoinModelSlot(content, slotsRef.current[index]);
+          modelApi.updateCoinFanPivot(coin, content, slotsRef.current[index]);
         });
-        group.setTime(time, current.speed, current.ringSpeed, current.loopDuration);
+        group.setTime(time, current.speed, current.ringSpeed, current.loopDuration, false, current.fan);
         renderer.render(group.scene, camera);
         canvas.dataset.renderedTime = time.toFixed(6);
       };
@@ -591,7 +597,7 @@ function ImportedCoinLoader({
 
   useEffect(() => {
     renderRef.current?.(timeSeconds);
-  }, [timeSeconds, speed, distance, loopDuration, settings.coinSize, settings.spread, settings.ringSpeed, coinModelSlots]);
+  }, [timeSeconds, speed, distance, loopDuration, settings.coinSize, settings.spread, settings.ringSpeed, coinModelSlots, coinFan]);
 
   return <div style={{ position: "relative", width: "100%", height: "100%", minWidth: 1, minHeight: 1, background, ...style }}>
     <canvas ref={canvasRef} data-testid="coin-loader-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />

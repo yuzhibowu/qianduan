@@ -10,9 +10,11 @@ import {
   PerspectiveCamera,
   Quaternion,
   QuaternionKeyframeTrack,
+  VectorKeyframeTrack,
   Scene,
   Vector3,
   type Object3D,
+  type KeyframeTrack,
   type Texture,
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -23,6 +25,7 @@ import { evaluateCoinMotion, rotationsPerCycle, TAU } from "./time";
 import { packAlignedUsdz } from "./usdz";
 import { applyToHex, applyToImageData, linearToSrgb, srgbToLinear, type ColorComp } from "./lib/color";
 import type { CoinModelAsset, CoinModelSlot } from "./coin-model-asset";
+import { evaluateCoinFan, fanAngle, type CoinFanSettings } from "./coin-fan";
 
 function assertStaticMeshes(root: Object3D) {
   let meshCount = 0;
@@ -97,6 +100,7 @@ async function parseCoinModel(asset: CoinModelAsset): Promise<Group> {
 const zAxis = new Vector3(0, 0, 1);
 const xAxis = new Vector3(1, 0, 0);
 const yAxis = new Vector3(0, 1, 0);
+const fanAnchor = new Vector3(0, 0, 0);
 
 function coinQuaternion(index: number, count: number, tumble: number) {
   return new Quaternion()
@@ -104,6 +108,17 @@ function coinQuaternion(index: number, count: number, tumble: number) {
     .multiply(new Quaternion().setFromAxisAngle(xAxis, tumble))
     .multiply(new Quaternion().setFromAxisAngle(yAxis, Math.PI / count + tumble))
     .multiply(new Quaternion().setFromAxisAngle(zAxis, Math.PI / 2 + tumble));
+}
+
+export function updateCoinFanPivot(coin: Group, content: Group, slot?: CoinModelSlot) {
+  const key = `${slot?.scale ?? 100}:${slot?.rotationX ?? 0}:${slot?.rotationY ?? 0}:${slot?.rotationZ ?? 0}`;
+  if (coin.userData.fanPivotKey === key) return;
+  // Measure in coin-local coordinates, independently of its animated world pose.
+  const local = content.clone(true);
+  local.updateMatrixWorld(true);
+  const bounds = new Box3().setFromObject(local);
+  coin.userData.fanPivot = new Vector3(bounds.min.x, bounds.min.y, 0);
+  coin.userData.fanPivotKey = key;
 }
 
 export function createCoinModelScene(model: Group | Group[], count: number, coinSize: number, spread: number, slots: CoinModelSlot[] = []) {
@@ -123,22 +138,52 @@ export function createCoinModelScene(model: Group | Group[], count: number, coin
       0,
     );
     coin.scale.setScalar(coinSize / 100);
+    coin.userData.baseScale = coinSize / 100;
     const content = new Group();
     content.name = `CoinContent${index + 1}`;
     const source = Array.isArray(model) ? model[index] ?? model[0] : model;
     content.add(source.clone(true));
     applyCoinModelSlot(content, slots[index]);
+    updateCoinFanPivot(coin, content, slots[index]);
     coin.add(content);
     ring.add(coin);
     return coin;
   });
-  const setTime = (time: number, speed: number, ringSpeed: number, duration: number, continuous = false) => {
+  const setTime = (time: number, speed: number, ringSpeed: number, duration: number, continuous = false, fan?: CoinFanSettings) => {
     const motion = evaluateCoinMotion(time, speed, ringSpeed, duration);
     const phase = Math.max(0, time) / Math.max(0.001, duration);
-    const tumble = continuous ? TAU * phase * rotationsPerCycle(speed) : motion.tumble;
-    const ringPhase = continuous ? TAU * phase * rotationsPerCycle(ringSpeed) : motion.ringPhase;
+    const activeFan = fan?.enabled
+      ? evaluateCoinFan(time, duration, ringSpeed, fan)
+      : null;
+    const tumble = activeFan
+      ? TAU * activeFan.motionTime / Math.max(0.001, duration) * rotationsPerCycle(speed)
+      : continuous ? TAU * phase * rotationsPerCycle(speed) : motion.tumble;
+    const ringPhase = activeFan?.rotation ?? (continuous ? TAU * phase * rotationsPerCycle(ringSpeed) : motion.ringPhase);
     ring.quaternion.setFromAxisAngle(zAxis, -ringPhase);
-    coins.forEach((coin, index) => coin.quaternion.copy(coinQuaternion(index, safeCount, tumble)));
+    coins.forEach((coin, index) => {
+      coin.quaternion.copy(coinQuaternion(index, safeCount, tumble));
+      const positionAngle = ((index + 1) / safeCount) * TAU;
+      const radius = 3 * spread / 100;
+      coin.position.set(Math.cos(positionAngle) * radius, Math.sin(positionAngle) * radius, 0);
+      if (activeFan && fan) {
+        const pivotLocal = (coin.userData.fanPivot as Vector3).clone().multiplyScalar(coin.userData.baseScale as number);
+        const initialRay = pivotLocal.lengthSq() > 1e-8
+          ? Math.atan2(-pivotLocal.y, -pivotLocal.x)
+          : Math.PI / 4;
+        const slotAngle = fanAngle(index, safeCount);
+        const hingeAngle = (slotAngle - initialRay) * activeFan.fan;
+        const hinge = new Quaternion().setFromAxisAngle(zAxis, hingeAngle);
+        const stackDepth = (index - (safeCount - 1) / 2) * 0.025;
+        const hingePosition = fanAnchor.clone().sub(pivotLocal.applyQuaternion(hinge));
+        hingePosition.z = stackDepth;
+        const orbitPosition = coin.position.clone();
+        coin.position.copy(hingePosition).lerp(orbitPosition, activeFan.orbit);
+        const originalStart = coinQuaternion(index, safeCount, 0);
+        const relativeTumble = originalStart.invert().multiply(coinQuaternion(index, safeCount, tumble));
+        coin.quaternion.copy(hinge).multiply(relativeTumble);
+      }
+      coin.scale.setScalar(coin.userData.baseScale as number);
+    });
   };
   return { scene, ring, coins, setTime };
 }
@@ -171,6 +216,7 @@ export function createCoinModelCamera(distance: number, aspect: number) {
 export type CoinModelUsdzSettings = {
   asset: CoinModelAsset;
   slots?: CoinModelSlot[];
+  fan?: CoinFanSettings;
   duration: number;
   delay: number;
   fps: number;
@@ -311,13 +357,18 @@ export async function buildCoinModelUsdz(settings: CoinModelUsdzSettings) {
   const times = new Float32Array(frames);
   const targets = [ring, ...coins];
   const values = targets.map(() => new Float32Array(frames * 4));
+  const positions = coins.map(() => new Float32Array(frames * 3));
   for (let frame = 0; frame < frames; frame += 1) {
     times[frame] = frame / settings.fps;
-    setTime(Math.max(0, times[frame] - settings.delay), settings.speed, settings.ringSpeed, settings.duration, true);
+    setTime(Math.max(0, times[frame] - settings.delay), settings.speed, settings.ringSpeed, settings.duration, true, settings.fan);
     targets.forEach((target, index) => target.quaternion.toArray(values[index], frame * 4));
+    coins.forEach((coin, index) => coin.position.toArray(positions[index], frame * 3));
   }
-  const tracks = targets.map((target, index) =>
+  const tracks: KeyframeTrack[] = targets.map((target, index) =>
     new QuaternionKeyframeTrack(`${target.name}.quaternion`, times, values[index]));
+  if (settings.fan?.enabled) coins.forEach((coin, index) => {
+    tracks.push(new VectorKeyframeTrack(`${coin.name}.position`, times, positions[index]));
+  });
   const clip = new AnimationClip("Coin Loader", (frames - 1) / settings.fps, tracks);
   scene.updateMatrixWorld(true);
   const raw = await new USDZExporter().parseAsync(scene, {

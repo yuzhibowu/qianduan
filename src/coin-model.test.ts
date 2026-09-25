@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strFromU8, unzipSync } from "fflate";
 import { afterAll, describe, expect, it } from "vitest";
+import { Vector3 } from "three";
 import { buildCoinModelUsdz, createCoinModelScene, loadCoinModel } from "./coin-model";
 import { coinModelFormat, type CoinModelAsset } from "./coin-model-asset";
+import { DEFAULT_COIN_FAN } from "./coin-fan";
 
 const scratch = mkdtempSync(join(tmpdir(), "coin-model-test-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -109,6 +111,106 @@ describe("Coin Loader imported 3D model", () => {
     const path = join(scratch, "distinct-models.usdz");
     writeFileSync(path, output.bytes);
     execFileSync("/usr/bin/usdchecker", [path]);
+  });
+
+  it("exports the opening fan, original orbit, and closing deck as animated transforms", async () => {
+    const group = createCoinModelScene(await loadCoinModel(triangleGlb()), 2, 100, 100);
+    const fan = { ...DEFAULT_COIN_FAN, enabled: true };
+    group.setTime(0, 100, 50, 2, false, fan);
+    const startRing = group.ring.quaternion.clone();
+    const startCoin = group.coins[0].quaternion.clone();
+    const startPosition = group.coins[0].position.clone();
+    expect(group.coins[0].position.x).toBeCloseTo(group.coins[1].position.x);
+    group.setTime(0.22, 100, 50, 2, false, fan);
+    expect(group.coins[0].position.x).toBeLessThan(group.coins[1].position.x);
+    expect(group.ring.quaternion.angleTo(startRing)).toBeCloseTo(0);
+    group.setTime(1, 100, 50, 2, false, fan);
+    expect(group.coins[0].position.distanceTo(group.coins[1].position)).toBeGreaterThan(2);
+    group.setTime(2, 100, 50, 2, false, fan);
+    expect(group.coins[0].position.x).toBeCloseTo(group.coins[1].position.x);
+    expect(group.coins[0].position.distanceTo(startPosition)).toBeCloseTo(0);
+    expect(group.coins[0].quaternion.angleTo(startCoin)).toBeCloseTo(0);
+    expect(group.ring.quaternion.angleTo(startRing)).toBeCloseTo(0);
+    const result = await buildCoinModelUsdz({
+      asset: triangleGlb(), duration: 2, delay: 0, fps: 24,
+      speed: 100, ringSpeed: 50, count: 2, coinSize: 100, spread: 100,
+      fan,
+    });
+    const usda = strFromU8(unzipSync(result.bytes)["model.usda"]);
+    expect(usda).toContain("endTimeCode = 47");
+    expect(usda).toContain("xformOp:translate.timeSamples");
+    const output = join(scratch, "fan-opening.usdz");
+    writeFileSync(output, result.bytes);
+    execFileSync("/usr/bin/usdchecker", [output]);
+  });
+
+  it("hinges eight models around the same lower-left pivot before moving outward", async () => {
+    const group = createCoinModelScene(await loadCoinModel(triangleGlb()), 8, 100, 100);
+    const fan = { ...DEFAULT_COIN_FAN, enabled: true };
+    group.setTime(1.1, 100, 50, 10, false, fan);
+    const pivotPoints = group.coins.map((coin) => {
+      const local = (coin.userData.fanPivot as import("three").Vector3).clone().multiplyScalar(coin.scale.x);
+      return local.applyQuaternion(coin.quaternion).add(coin.position);
+    });
+    pivotPoints.forEach((pivot) => {
+      expect(pivot.x).toBeCloseTo(pivotPoints[0].x);
+      expect(pivot.y).toBeCloseTo(pivotPoints[0].y);
+    });
+    expect(pivotPoints[0].x).toBeCloseTo(0);
+    expect(pivotPoints[0].y).toBeCloseTo(0);
+    const radii = group.coins.map((coin) => Math.hypot(coin.position.x, coin.position.y));
+    radii.forEach((radius) => expect(radius).toBeCloseTo(radii[0]));
+    expect(radii[0]).toBeGreaterThan(1);
+    const initialRays = group.coins.map((coin) => Math.atan2(coin.position.y, coin.position.x));
+    const initialOrientations = group.coins.map((coin) => coin.quaternion.clone());
+    const initialRingRotation = group.ring.quaternion.clone();
+    group.setTime(1.8, 100, 50, 10, false, fan);
+    expect(group.ring.quaternion.angleTo(initialRingRotation)).toBeGreaterThan(0);
+    group.coins.forEach((coin, index) => {
+      expect(Math.hypot(coin.position.x, coin.position.y)).toBeGreaterThan(radii[index]);
+      expect(Math.cos(initialRays[index]) * coin.position.y - Math.sin(initialRays[index]) * coin.position.x).toBeCloseTo(0);
+      expect(Math.cos(initialRays[index]) * coin.position.x + Math.sin(initialRays[index]) * coin.position.y).toBeGreaterThan(0);
+      expect(coin.quaternion.angleTo(initialOrientations[index])).toBeGreaterThan(0);
+    });
+  });
+
+  it("keeps the ring turning while cards finish flipping before the closing stack overlaps", async () => {
+    const group = createCoinModelScene(await loadCoinModel(triangleGlb()), 8, 100, 100);
+    const fan = { ...DEFAULT_COIN_FAN, enabled: true };
+    group.setTime(8, 100, 50, 10, false, fan);
+    const ringAtClosingStart = group.ring.quaternion.clone();
+    const cardAtClosingStart = group.coins[0].quaternion.clone();
+    group.setTime(8.3, 100, 50, 10, false, fan);
+    expect(group.ring.quaternion.angleTo(ringAtClosingStart)).toBeGreaterThan(0);
+    expect(group.coins[0].quaternion.angleTo(cardAtClosingStart)).toBeGreaterThan(0);
+    group.setTime(8.45, 100, 50, 10, false, fan);
+    const ringAfterFlipStops = group.ring.quaternion.clone();
+    const cardAfterFlipStops = group.coins[0].quaternion.clone();
+    group.setTime(8.8, 100, 50, 10, false, fan);
+    expect(group.ring.quaternion.angleTo(ringAfterFlipStops)).toBeGreaterThan(0);
+    expect(group.coins[0].quaternion.angleTo(cardAfterFlipStops)).toBeCloseTo(0);
+  });
+
+  it("keeps each differently oriented card on its own radial slot during dispersion", async () => {
+    const models = await Promise.all([loadCoinModel(triangleGlb()), loadCoinModel(triangleGlb(2))]);
+    const slots = [
+      { scale: 100, rotationX: 0, rotationY: 0, rotationZ: 30 },
+      { scale: 135, rotationX: 0, rotationY: 0, rotationZ: -25 },
+    ];
+    const group = createCoinModelScene(models, 2, 100, 100, slots);
+    const fan = { ...DEFAULT_COIN_FAN, enabled: true };
+    group.setTime(1.1, 100, 50, 10, false, fan);
+    const orientations = group.coins.map((coin) => coin.quaternion.clone());
+    const directions = group.coins.map((coin) => coin.position.clone().normalize());
+    group.setTime(1.8, 100, 50, 10, false, fan);
+    group.coins.forEach((coin, index) => {
+      const expected = new Vector3(
+        Math.cos((index + 1) * Math.PI), Math.sin((index + 1) * Math.PI), 0,
+      );
+      expect(directions[index].dot(expected)).toBeCloseTo(1);
+      expect(coin.position.clone().normalize().dot(expected)).toBeCloseTo(1);
+      expect(coin.quaternion.angleTo(orientations[index])).toBeGreaterThan(0);
+    });
   });
 
   it("imports USDZ geometry, then replaces the default coin silhouette", async () => {

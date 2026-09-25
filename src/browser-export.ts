@@ -11,6 +11,7 @@ import type { BorderIllustration } from "./border-illustration";
 import type { BorderWrapPosition } from "./alpha-edge-mask";
 import type { ShinyGraphic } from "./shiny-graphic";
 import type { CoinModelAsset, CoinModelSlot } from "./coin-model-asset";
+import type { CoinFanSettings } from "./coin-fan";
 import { FullFrameApngBuilder } from "./apng";
 import {
   ADAPTIVE_SAFETY_PADDING,
@@ -82,6 +83,7 @@ export type BrowserExportSettings = {
   backTexture?: string;
   coinModel?: CoinModelAsset;
   coinModelSlots?: CoinModelSlot[];
+  coinFan?: CoinFanSettings;
 };
 
 export type BrowserExportProgress = {
@@ -255,6 +257,7 @@ async function createRenderSession(
     fontWeight: String(settings.fontWeight),
     ...(shinyGraphicKey ? { shinyGraphicKey } : {}),
     ...(coinModelKey ? { coinModelKey } : {}),
+    ...(settings.coinFan ? { coinFan: JSON.stringify(settings.coinFan) } : {}),
     shinyGraphicScale: String(settings.shinyGraphicScale),
     interaction: JSON.stringify(settings.interactionTrack),
     bloomStyle: settings.lightBloom.variant,
