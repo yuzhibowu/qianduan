@@ -1264,6 +1264,18 @@ html[data-render="frame"] #root {
 .color-correction {
   margin: 0 0 10px;
 }
+.coin-model-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+.coin-model-slots {
+  display: grid;
+  gap: 10px;
+}
+.usdz-target + .usdz-target {
+  margin-top: 8px;
+}
 .color-switch {
   margin: 0;
   font-weight: 780;

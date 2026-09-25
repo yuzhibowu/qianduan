@@ -66,7 +66,9 @@ describe("animated USDZ loop boundary", () => {
   it("writes dense geometry-specific compensation and emissive lift into the material", async () => {
     expect(DEFAULT_COMP.samples).toHaveLength(1130);
     expect(CARD_COMP.samples).toHaveLength(1130);
-    expect(FREEFORM_COMP.samples).toHaveLength(117);
+    expect(FREEFORM_COMP.samples).toHaveLength(1130);
+    expect(FREEFORM_COMP.calibratedLift).toBe(0);
+    expect(FREEFORM_COMP.calibratedMaterial).toBe("paper");
     expect(DEFAULT_COMP.matrix).not.toEqual(FREEFORM_COMP.matrix);
     expect(DEFAULT_COMP.matrix).not.toEqual(CARD_COMP.matrix);
     const result = await buildCoinUsdz({
@@ -101,6 +103,20 @@ describe("animated USDZ loop boundary", () => {
     compensateUsdzTexturePixels(imageData, DEFAULT_COMP);
     expect(Array.from(imageData.data)).not.toEqual(original);
     expect(imageData.data[3]).toBe(255);
+  });
+
+  it("uses the Freeform measured profile without Keynote's emissive lift", async () => {
+    const result = await buildCoinUsdz({
+      duration: 1, delay: 0, fps: 1, speed: 100, ringSpeed: 50,
+      count: 1, coinSize: 100, spread: 100, baseColor: "#4682B4",
+      colorComp: FREEFORM_COMP,
+      emissiveLift: FREEFORM_COMP.calibratedLift ?? 0,
+      unlit: false,
+    });
+    const usda = strFromU8(unzipSync(result.bytes)["model.usda"]);
+    expect(usda).toContain("float inputs:metallic = 0");
+    expect(usda).toContain("float inputs:roughness = 0.9");
+    expect(usda).toContain("color3f inputs:emissiveColor = (0.000000,0.000000,0.000000)");
   });
 
   it("uses one texture asset for diffuse and 50 percent emissive slots", () => {

@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { evaluateCoinMotion, TAU } from "../time";
 import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "../appearance";
 import { WebGLRenderer } from "three";
-import type { CoinModelAsset } from "../coin-model-asset";
+import type { CoinModelAsset, CoinModelSlot } from "../coin-model-asset";
 
 type RGB = [number, number, number];
 type M4 = Float32Array;
@@ -27,6 +27,8 @@ interface Props {
   style?: CSSProperties;
   appearance?: SurfaceAppearance;
   coinModel?: CoinModelAsset;
+  coinModelSlots?: CoinModelSlot[];
+  coinModelAssetRevision?: number;
 }
 
 const DEFAULT_COINS: CoinsGroup = {
@@ -514,8 +516,12 @@ function ImportedCoinLoader({
   loopDuration = TAU / 0.6,
   style,
   coinModel,
+  coinModelSlots = [],
+  coinModelAssetRevision = 0,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const slotsRef = useRef(coinModelSlots);
+  slotsRef.current = coinModelSlots;
   const renderRef = useRef<((time: number) => void) | null>(null);
   const liveRef = useRef({ speed, distance, timeSeconds, loopDuration, ringSpeed: coins?.ringSpeed ?? DEFAULT_COINS.ringSpeed, coinSize: coins?.coinSize ?? DEFAULT_COINS.coinSize, spread: coins?.spread ?? DEFAULT_COINS.spread });
   liveRef.current = { speed, distance, timeSeconds, loopDuration, ringSpeed: coins?.ringSpeed ?? DEFAULT_COINS.ringSpeed, coinSize: coins?.coinSize ?? DEFAULT_COINS.coinSize, spread: coins?.spread ?? DEFAULT_COINS.spread };
@@ -528,9 +534,10 @@ function ImportedCoinLoader({
     let renderer: WebGLRenderer | undefined;
     let observer: ResizeObserver | undefined;
     const ready = import("../coin-model").then(async (modelApi) => {
-      const model = await modelApi.loadCoinModel(coinModel);
+      const models = await Promise.all(Array.from({ length: settings.count }, (_, index) =>
+        modelApi.loadCoinModel(slotsRef.current[index]?.asset ?? coinModel)));
       if (disposed) return;
-      const group = modelApi.createCoinModelScene(model, settings.count, settings.coinSize, settings.spread);
+      const group = modelApi.createCoinModelScene(models, settings.count, settings.coinSize, settings.spread, slotsRef.current);
       modelApi.addCoinModelPreviewLights(group.scene);
       renderer = new WebGLRenderer({
         canvas,
@@ -558,6 +565,7 @@ function ImportedCoinLoader({
             0,
           );
           coin.scale.setScalar(current.coinSize / 100);
+          modelApi.applyCoinModelSlot(coin.children[0] as import("three").Group, slotsRef.current[index]);
         });
         group.setTime(time, current.speed, current.ringSpeed, current.loopDuration);
         renderer.render(group.scene, camera);
@@ -579,11 +587,11 @@ function ImportedCoinLoader({
       if (window.__originKitRenderAt === renderAt) delete window.__originKitRenderAt;
       if (window.__originKitAssetsReady === ready) delete window.__originKitAssetsReady;
     };
-  }, [coinModel, settings.count]);
+  }, [coinModel, coinModelAssetRevision, settings.count]);
 
   useEffect(() => {
     renderRef.current?.(timeSeconds);
-  }, [timeSeconds, speed, distance, loopDuration, settings.coinSize, settings.spread, settings.ringSpeed]);
+  }, [timeSeconds, speed, distance, loopDuration, settings.coinSize, settings.spread, settings.ringSpeed, coinModelSlots]);
 
   return <div style={{ position: "relative", width: "100%", height: "100%", minWidth: 1, minHeight: 1, background, ...style }}>
     <canvas ref={canvasRef} data-testid="coin-loader-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />

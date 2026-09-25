@@ -10,7 +10,7 @@ import type { DiscCurveSettings } from "./disc-curve";
 import type { BorderIllustration } from "./border-illustration";
 import type { BorderWrapPosition } from "./alpha-edge-mask";
 import type { ShinyGraphic } from "./shiny-graphic";
-import type { CoinModelAsset } from "./coin-model-asset";
+import type { CoinModelAsset, CoinModelSlot } from "./coin-model-asset";
 import { FullFrameApngBuilder } from "./apng";
 import {
   ADAPTIVE_SAFETY_PADDING,
@@ -81,6 +81,7 @@ export type BrowserExportSettings = {
   frontTexture?: string;
   backTexture?: string;
   coinModel?: CoinModelAsset;
+  coinModelSlots?: CoinModelSlot[];
 };
 
 export type BrowserExportProgress = {
@@ -216,6 +217,8 @@ async function createRenderSession(
   if (coinModelKey) {
     window.__originKitCoinModels ??= {};
     window.__originKitCoinModels[coinModelKey] = settings.coinModel!;
+    window.__originKitCoinModelSlots ??= {};
+    window.__originKitCoinModelSlots[coinModelKey] = settings.coinModelSlots ?? [];
   }
   const query = new URLSearchParams({
     render: "frame",
@@ -292,6 +295,7 @@ async function createRenderSession(
     }
     if (coinModelKey && window.__originKitCoinModels) {
       delete window.__originKitCoinModels[coinModelKey];
+      delete window.__originKitCoinModelSlots?.[coinModelKey];
     }
   };
   try {

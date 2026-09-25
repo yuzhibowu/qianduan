@@ -51,7 +51,7 @@ import {
 } from "./appearance";
 import { adaptNeonToAspect } from "./neon-adaptation";
 import { borderLoopDuration, neonLoopDuration } from "./border-timing";
-import { coinModelFormat, type CoinModelAsset } from "./coin-model-asset";
+import { coinModelFormat, defaultCoinModelSlot, type CoinModelAsset, type CoinModelSlot } from "./coin-model-asset";
 import {
   inspectShinyGraphic,
   shinyGraphicKind,
@@ -525,6 +525,12 @@ export default function App() {
       ? window.parent.__originKitCoinModels?.[key]
       : undefined;
   })();
+  const queryCoinModelSlots: CoinModelSlot[] = (() => {
+    const key = query.get("coinModelKey");
+    return key && window.parent !== window
+      ? window.parent.__originKitCoinModelSlots?.[key] ?? []
+      : [];
+  })();
   const queryBorderIllustration: BorderIllustration | undefined = (() => {
     try {
       const key = query.get("borderIllustrationKey");
@@ -593,11 +599,15 @@ export default function App() {
   const [shinyGraphicScale, setShinyGraphicScale] = useState(queryShinyGraphicScale);
   const [shinyGraphicError, setShinyGraphicError] = useState("");
   const [coinModel, setCoinModel] = useState<CoinModelAsset | undefined>(queryCoinModel);
+  const [coinModelSlots, setCoinModelSlots] = useState<CoinModelSlot[]>(queryCoinModelSlots);
+  const [coinModelAssetRevision, setCoinModelAssetRevision] = useState(0);
+  const [selectedCoinModelSlot, setSelectedCoinModelSlot] = useState(0);
   const [coinModelMode, setCoinModelMode] = useState<"coin" | "model">(queryCoinModel ? "model" : "coin");
   const [coinModelError, setCoinModelError] = useState("");
   const [coinModelNotice, setCoinModelNotice] = useState("");
   const [coinModelLoading, setCoinModelLoading] = useState(false);
   const coinModelInputRef = useRef<HTMLInputElement>(null);
+  const coinModelImportSlotRef = useRef<number | null>(null);
   const [interactionTrack, setInteractionTrack] = useState<InteractionSample[]>(queryInteractionTrack);
   const [recordingInteraction, setRecordingInteraction] = useState(false);
   const [replayingInteraction, setReplayingInteraction] = useState(false);
@@ -622,12 +632,7 @@ export default function App() {
   const [background, setBackground] = useState("transparent");
   const [loop, setLoop] = useState(true);
   const [pngCompression, setPngCompression] = useState(true);
-  const [colorCorrection, setColorCorrection] = useState(false);
-  const [colorTarget, setColorTarget] = useState<ColorTarget>("keynote");
-  const [emissiveLift, setEmissiveLift] = useState(
-    DEFAULT_COMP.calibratedLift ?? 0.5,
-  );
-  const [unlit, setUnlit] = useState(false);
+  const [colorCorrection, setColorCorrection] = useState(true);
   const [appearances, setAppearances] = useState<Record<string, SurfaceAppearance>>({
     "coin-loader": { ...DEFAULT_APPEARANCE, material: materialFromPreset("silver") },
     "disc-split": { ...DEFAULT_APPEARANCE, material: materialFromPreset("gold") },
@@ -649,11 +654,11 @@ export default function App() {
     format: BrowserExportFormat;
     status: string;
   } | null>(null);
-  const [usdzJob, setUsdzJob] = useState({
-    running: false,
-    outputPath: "",
-    summary: "",
-    error: "",
+  const [usdzJobs, setUsdzJobs] = useState<Record<ColorTarget, {
+    running: boolean; outputPath: string; summary: string; error: string;
+  }>>({
+    keynote: { running: false, outputPath: "", summary: "", error: "" },
+    freeform: { running: false, outputPath: "", summary: "", error: "" },
   });
   const originRef = useRef(0);
   const timeAtPlayRef = useRef(0);
@@ -821,6 +826,7 @@ export default function App() {
           canvasAspect={exportWidth / Math.max(1, exportHeight)}
           appearance={appearance}
           coinModel={queryCoinModel}
+          coinModelSlots={queryCoinModelSlots}
         />
       </div>
     );
@@ -883,6 +889,7 @@ export default function App() {
       frontTexture: appearance.frontTexture,
       backTexture: appearance.backTexture,
       coinModel: activeCoinModel,
+      coinModelSlots: activeCoinModel ? coinModelSlots : undefined,
     }),
     [
       componentId,
@@ -932,29 +939,12 @@ export default function App() {
       appearance.frontTexture,
       appearance.backTexture,
       activeCoinModel,
+      coinModelSlots,
     ],
   );
   // Current USDZ geometries are rings, wedges, tori or a curved band rather
   // than flat cards, so they use the default profile. A future flat-card
   // exporter can opt into the card profile through colorProfileFor(..., "card").
-  const activeColorProfile = colorProfileFor(colorTarget);
-  const usdzPayload = useMemo(
-    () => ({
-      ...exportPayload,
-      colorComp: colorCorrection ? activeColorProfile : undefined,
-      emissiveLift,
-      unlit,
-      appearance,
-    }),
-    [exportPayload, colorCorrection, activeColorProfile, emissiveLift, unlit, appearance],
-  );
-  const chooseColorTarget = (target: ColorTarget) => {
-    const profile = colorProfileFor(target);
-    setColorTarget(target);
-    setEmissiveLift(profile.calibratedLift ?? 0.5);
-    setUnlit(profile.calibratedUnlit ?? false);
-  };
-
   const chooseComponent = (nextId: string) => {
     componentControlsRef.current[componentId] = {
       baseColor,
@@ -1120,19 +1110,25 @@ export default function App() {
     });
   }
 
-  async function exportUsdz() {
+  async function exportUsdz(target: ColorTarget) {
     if (!componentDefinition.exportCapabilities.includes("usdz")) return;
-    setUsdzJob({
+    const profile = colorProfileFor(target);
+    const colorComp = colorCorrection ? profile : undefined;
+    const emissiveLift = colorCorrection ? profile.calibratedLift ?? 0 : 0;
+    const unlit = colorCorrection && Boolean(profile.calibratedUnlit);
+    const usdzPayload = { ...exportPayload, colorComp, emissiveLift, unlit, appearance };
+    setUsdzJobs((jobs) => ({ ...jobs, [target]: {
       running: true,
       outputPath: "",
       summary: "正在浏览器中生成动画 USDZ…",
       error: "",
-    });
+    } }));
     try {
       await new Promise((resolve) => setTimeout(resolve, 20));
       const result = activeCoinModel
         ? await (await import("./coin-model")).buildCoinModelUsdz({
             asset: activeCoinModel,
+            slots: coinModelSlots,
             duration,
             delay,
             fps,
@@ -1141,7 +1137,7 @@ export default function App() {
             count,
             coinSize,
             spread,
-            colorComp: colorCorrection ? activeColorProfile : undefined,
+            colorComp,
             emissiveLift,
             unlit,
           })
@@ -1154,21 +1150,21 @@ export default function App() {
           : await buildCoinUsdz(usdzPayload);
       downloadUsdz(
         result.bytes,
-        `OriginKit-${componentDefinition.name.replaceAll(" ", "-")}-${Date.now()}.usdz`,
+        `OriginKit-${componentDefinition.name.replaceAll(" ", "-")}-${target === "keynote" ? "Keynote" : "Freeform"}-${Date.now()}.usdz`,
       );
-      setUsdzJob({
+      setUsdzJobs((jobs) => ({ ...jobs, [target]: {
         running: false,
         outputPath: "",
         summary: `已下载 · 完整循环 ${duration.toFixed(3)} 秒 · ${fps} FPS · ${result.frames} 个确定性采样`,
         error: "",
-      });
+      } }));
     } catch (error) {
-      setUsdzJob({
+      setUsdzJobs((jobs) => ({ ...jobs, [target]: {
         running: false,
         outputPath: "",
         summary: "",
         error: error instanceof Error ? error.message : String(error),
-      });
+      } }));
     }
   }
 
@@ -1252,7 +1248,7 @@ export default function App() {
       }));
     reader.readAsDataURL(file);
   };
-  async function loadCoinModelFile(file?: File) {
+  async function loadCoinModelFile(file?: File, slotIndex: number | null = null) {
     if (!file) return;
     const format = coinModelFormat(file);
     if (!format) {
@@ -1264,7 +1260,15 @@ export default function App() {
     try {
       const asset: CoinModelAsset = { name: file.name, format, bytes: await file.arrayBuffer() };
       const loaded = await (await import("./coin-model")).loadCoinModel(asset);
-      setCoinModel(asset);
+      if (slotIndex === null) setCoinModel(asset);
+      else {
+        setCoinModelSlots((current) => {
+          const next = [...current];
+          next[slotIndex] = { ...(next[slotIndex] ?? defaultCoinModelSlot()), asset };
+          return next;
+        });
+        setCoinModelAssetRevision((value) => value + 1);
+      }
       setCoinModelMode("model");
       setCoinModelNotice(loaded.userData.embeddedAnimations
         ? "模型自带动画暂不叠加；使用 Coin Loader 的环绕与翻转动画。"
@@ -1498,6 +1502,8 @@ export default function App() {
               loopDuration={duration}
               appearance={appearance}
               coinModel={activeCoinModel}
+              coinModelSlots={coinModelSlots}
+              coinModelAssetRevision={coinModelAssetRevision}
             />
           </div>
         </div>
@@ -2412,14 +2418,46 @@ export default function App() {
                 <div className="field coin-model-import">
                   <span>模型素材</span>
                   <div className="opts">
-                    <button className="btn" disabled={coinModelLoading} onClick={() => coinModelInputRef.current?.click()}>{coinModelLoading ? "读取中…" : coinModel ? "替换模型" : "添加模型"}</button>
-                    <button className="btn" disabled={!coinModel} onClick={() => { setCoinModel(undefined); setCoinModelMode("coin"); setCoinModelError(""); setCoinModelNotice(""); }}>去掉</button>
+                    <button className="btn" disabled={coinModelLoading} onClick={() => { coinModelImportSlotRef.current = null; coinModelInputRef.current?.click(); }}>{coinModelLoading ? "读取中…" : coinModel ? "替换共用模型" : "添加共用模型"}</button>
+                    <button className="btn" disabled={!coinModel} onClick={() => { setCoinModel(undefined); setCoinModelSlots([]); setCoinModelMode("coin"); setCoinModelError(""); setCoinModelNotice(""); }}>去掉</button>
                   </div>
-                  <input ref={coinModelInputRef} type="file" accept=".glb,.usdz,model/gltf-binary,model/vnd.usdz+zip" hidden onChange={(event) => void loadCoinModelFile(event.target.files?.[0])} />
+                  <input ref={coinModelInputRef} type="file" accept=".glb,.usdz,model/gltf-binary,model/vnd.usdz+zip" hidden onChange={(event) => void loadCoinModelFile(event.target.files?.[0], coinModelImportSlotRef.current)} />
                   {coinModel && <small className="coin-model-name">{coinModel.name} · 已导入</small>}
                   {coinModelNotice && activeCoinModel && <small className="coin-model-name">{coinModelNotice}</small>}
                   {coinModelError && <small className="error">{coinModelError}</small>}
                 </div>
+                {activeCoinModel && <div className="coin-model-slots">
+                  <div className="field"><span>逐张模型</span>
+                    <div className="coin-model-slot-grid" role="group" aria-label="模型位置">
+                      {Array.from({ length: count }, (_, index) => <button
+                        key={index} className={`opt ${Math.min(selectedCoinModelSlot, count - 1) === index ? "active" : ""}`}
+                        aria-pressed={Math.min(selectedCoinModelSlot, count - 1) === index}
+                        onClick={() => setSelectedCoinModelSlot(index)}>{index + 1}</button>)}
+                    </div>
+                  </div>
+                  {(() => {
+                    const index = Math.min(selectedCoinModelSlot, count - 1);
+                    const slot = coinModelSlots[index] ?? defaultCoinModelSlot();
+                    const update = (changes: Partial<CoinModelSlot>) => setCoinModelSlots((current) => {
+                      const next = [...current];
+                      next[index] = { ...(next[index] ?? defaultCoinModelSlot()), ...changes };
+                      return next;
+                    });
+                    return <>
+                      <div className="field"><span>第 {index + 1} 张 · {slot.asset?.name ?? `共用 ${coinModel?.name ?? "模型"}`}</span>
+                        <div className="opts">
+                          <button className="btn" disabled={coinModelLoading} onClick={() => { coinModelImportSlotRef.current = index; coinModelInputRef.current?.click(); }}>替换此张</button>
+                          <button className="btn" disabled={!slot.asset} onClick={() => { update({ asset: undefined }); setCoinModelAssetRevision((value) => value + 1); }}>恢复共用</button>
+                        </div>
+                      </div>
+                      <Slider label={`第 ${index + 1} 张大小`} value={slot.scale} min={10} max={300} step={1} display={`${slot.scale}%`} onChange={(scale) => update({ scale })} />
+                      {(["rotationX", "rotationY", "rotationZ"] as const).map((axis, axisIndex) => <Slider
+                        key={axis} label={`第 ${index + 1} 张朝向 ${["X", "Y", "Z"][axisIndex]}`}
+                        value={slot[axis]} min={-180} max={180} step={1} display={`${slot[axis]}°`}
+                        onChange={(value) => update({ [axis]: value })} />)}
+                    </>;
+                  })()}
+                </div>}
                 <Slider
                   label={activeCoinModel ? "模型翻转" : "硬币翻转"}
                   value={speed}
@@ -2718,64 +2756,28 @@ export default function App() {
                   />
                   <span>偏色抵消</span>
                 </label>
-                {colorCorrection && (
-                  <div
-                    className="opts"
-                    role="group"
-                    aria-label="导出给哪个 App 使用"
-                  >
-                    <button
-                      className={`opt ${colorTarget === "keynote" ? "active" : ""}`}
-                      aria-pressed={colorTarget === "keynote"}
-                      onClick={() => chooseColorTarget("keynote")}
-                    >
-                      Keynote
-                    </button>
-                    <button
-                      className={`opt ${colorTarget === "freeform" ? "active" : ""}`}
-                      aria-pressed={colorTarget === "freeform"}
-                      onClick={() => chooseColorTarget("freeform")}
-                    >
-                      无边记
-                    </button>
-                  </div>
-                )}
               </div>
             )}
-            <button
-              className="btn-primary usdz-export"
-              title={
-                componentDefinition.exportCapabilities.includes("usdz")
-                  ? ""
-                  : "该网页特效无法转换为真实 3D 几何"
-              }
-              disabled={
-                exportJobs.mov.running ||
-                exportJobs.apng.running ||
-                usdzJob.running ||
-                !componentDefinition.exportCapabilities.includes("usdz")
-              }
-              onClick={exportUsdz}
-            >
-              {usdzJob.running
-                ? "正在生成 USDZ…"
-                : componentDefinition.exportCapabilities.includes("usdz")
-                  ? "导出动画 USDZ"
-                  : "该组件不支持 USDZ"}
-            </button>
-            {usdzJob.summary && <p className="status">{usdzJob.summary}</p>}
-            {usdzJob.error && <p className="error">{usdzJob.error}</p>}
-            {usdzJob.outputPath && (
-              <>
-                <p className="path">{usdzJob.outputPath}</p>
+            {(["keynote", "freeform"] as const).map((target) => {
+              const job = usdzJobs[target];
+              const label = target === "keynote" ? "Keynote" : "无边记";
+              return <div className="usdz-target" key={target}>
                 <button
-                  className="btn"
-                  onClick={() => revealOutput(usdzJob.outputPath)}
+                  className="btn-primary usdz-export"
+                  title={componentDefinition.exportCapabilities.includes("usdz") ? "" : "该网页特效无法转换为真实 3D 几何"}
+                  disabled={exportJobs.mov.running || exportJobs.apng.running || usdzJobs.keynote.running || usdzJobs.freeform.running || !componentDefinition.exportCapabilities.includes("usdz")}
+                  onClick={() => void exportUsdz(target)}
                 >
-                  在 Finder 中显示 USDZ
+                  {job.running ? `正在生成${label} USDZ…` : componentDefinition.exportCapabilities.includes("usdz") ? `导出给${label} · 动画 USDZ` : `该组件不支持${label} USDZ`}
                 </button>
-              </>
-            )}
+                {job.summary && <p className="status">{job.summary}</p>}
+                {job.error && <p className="error">{job.error}</p>}
+                {job.outputPath && <>
+                  <p className="path">{job.outputPath}</p>
+                  <button className="btn" onClick={() => revealOutput(job.outputPath)}>在 Finder 中显示 USDZ</button>
+                </>}
+              </div>;
+            })}
           </section>
         </div>
         </SliderResetScope.Provider>

@@ -22,7 +22,7 @@ import { strFromU8, strToU8, unzipSync } from "fflate";
 import { evaluateCoinMotion, rotationsPerCycle, TAU } from "./time";
 import { packAlignedUsdz } from "./usdz";
 import { applyToHex, applyToImageData, linearToSrgb, srgbToLinear, type ColorComp } from "./lib/color";
-import type { CoinModelAsset } from "./coin-model-asset";
+import type { CoinModelAsset, CoinModelSlot } from "./coin-model-asset";
 
 function assertStaticMeshes(root: Object3D) {
   let meshCount = 0;
@@ -106,7 +106,7 @@ function coinQuaternion(index: number, count: number, tumble: number) {
     .multiply(new Quaternion().setFromAxisAngle(zAxis, Math.PI / 2 + tumble));
 }
 
-export function createCoinModelScene(model: Group, count: number, coinSize: number, spread: number) {
+export function createCoinModelScene(model: Group | Group[], count: number, coinSize: number, spread: number, slots: CoinModelSlot[] = []) {
   const safeCount = Math.max(1, Math.round(count));
   const scene = new Scene();
   const ring = new Group();
@@ -123,7 +123,12 @@ export function createCoinModelScene(model: Group, count: number, coinSize: numb
       0,
     );
     coin.scale.setScalar(coinSize / 100);
-    coin.add(model.clone(true));
+    const content = new Group();
+    content.name = `CoinContent${index + 1}`;
+    const source = Array.isArray(model) ? model[index] ?? model[0] : model;
+    content.add(source.clone(true));
+    applyCoinModelSlot(content, slots[index]);
+    coin.add(content);
     ring.add(coin);
     return coin;
   });
@@ -136,6 +141,15 @@ export function createCoinModelScene(model: Group, count: number, coinSize: numb
     coins.forEach((coin, index) => coin.quaternion.copy(coinQuaternion(index, safeCount, tumble)));
   };
   return { scene, ring, coins, setTime };
+}
+
+export function applyCoinModelSlot(content: Group, slot?: CoinModelSlot) {
+  content.scale.setScalar(Math.max(0.1, (slot?.scale ?? 100) / 100));
+  content.rotation.set(
+    (slot?.rotationX ?? 0) * Math.PI / 180,
+    (slot?.rotationY ?? 0) * Math.PI / 180,
+    (slot?.rotationZ ?? 0) * Math.PI / 180,
+  );
 }
 
 export function addCoinModelPreviewLights(scene: Scene) {
@@ -156,6 +170,7 @@ export function createCoinModelCamera(distance: number, aspect: number) {
 
 export type CoinModelUsdzSettings = {
   asset: CoinModelAsset;
+  slots?: CoinModelSlot[];
   duration: number;
   delay: number;
   fps: number;
@@ -274,11 +289,23 @@ function compensateModelMaterials(model: Group, profile: ColorComp, lift: number
 }
 
 export async function buildCoinModelUsdz(settings: CoinModelUsdzSettings) {
-  const model = (await loadCoinModel(settings.asset)).clone(true);
-  if (settings.colorComp)
-    compensateModelMaterials(model, settings.colorComp, settings.emissiveLift ?? 0.5, Boolean(settings.unlit));
+  const prepared = new Map<ArrayBuffer, Promise<Group>>();
+  const models = await Promise.all(Array.from({ length: Math.max(1, Math.round(settings.count)) }, async (_, index) => {
+    const asset = settings.slots?.[index]?.asset ?? settings.asset;
+    let pending = prepared.get(asset.bytes);
+    if (!pending) {
+      pending = loadCoinModel(asset).then((source) => {
+        const model = source.clone(true);
+        if (settings.colorComp)
+          compensateModelMaterials(model, settings.colorComp!, settings.emissiveLift ?? 0.5, Boolean(settings.unlit));
+        return model;
+      });
+      prepared.set(asset.bytes, pending);
+    }
+    return pending;
+  }));
   const { scene, ring, coins, setTime } = createCoinModelScene(
-    model, settings.count, settings.coinSize, settings.spread,
+    models, settings.count, settings.coinSize, settings.spread, settings.slots,
   );
   const frames = Math.max(1, Math.round((settings.duration + settings.delay) * settings.fps));
   const times = new Float32Array(frames);

@@ -10,13 +10,13 @@ import { coinModelFormat, type CoinModelAsset } from "./coin-model-asset";
 const scratch = mkdtempSync(join(tmpdir(), "coin-model-test-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
-function triangleGlb(): CoinModelAsset {
-  const positions = new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]);
+function triangleGlb(height = 1): CoinModelAsset {
+  const positions = new Float32Array([-1, -1, 0, 1, -1, 0, 0, height, 0]);
   const manifest = JSON.stringify({
     asset: { version: "2.0" },
     buffers: [{ byteLength: positions.byteLength }],
     bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positions.byteLength }],
-    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [-1, -1, 0], max: [1, 1, 0] }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [-1, -1, 0], max: [1, height, 0] }],
     meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
     nodes: [{ mesh: 0 }],
     scenes: [{ nodes: [0] }],
@@ -83,6 +83,32 @@ describe("Coin Loader imported 3D model", () => {
       if (previous) expect(previous.dot(current)).toBeGreaterThan(0.5);
       previous = current;
     }
+  });
+
+  it("uses distinct models and per-position scale/orientation in preview and USDZ", async () => {
+    const shared = triangleGlb();
+    const alternate = triangleGlb(2);
+    const models = await Promise.all([loadCoinModel(shared), loadCoinModel(alternate)]);
+    const slots = [
+      { scale: 100, rotationX: 0, rotationY: 0, rotationZ: 0 },
+      { asset: alternate, scale: 150, rotationX: 10, rotationY: 30, rotationZ: -20 },
+    ];
+    const scene = createCoinModelScene(models, 2, 100, 100, slots);
+    expect(scene.coins[0].children[0].scale.x).toBe(1);
+    expect(scene.coins[1].children[0].scale.x).toBe(1.5);
+    expect(scene.coins[1].children[0].rotation.y).toBeCloseTo(Math.PI / 6);
+    const output = await buildCoinModelUsdz({
+      asset: shared, slots, duration: 1, delay: 0, fps: 2,
+      speed: 100, ringSpeed: 50, count: 2, coinSize: 100, spread: 100,
+    });
+    const usda = strFromU8(unzipSync(output.bytes)["model.usda"]);
+    expect(usda).toContain('def Xform "CoinContent1"');
+    expect(usda).toContain('def Xform "CoinContent2"');
+    expect(usda).toContain('def Xform "Coin1"');
+    expect(usda).toContain('def Xform "Coin2"');
+    const path = join(scratch, "distinct-models.usdz");
+    writeFileSync(path, output.bytes);
+    execFileSync("/usr/bin/usdchecker", [path]);
   });
 
   it("imports USDZ geometry, then replaces the default coin silhouette", async () => {

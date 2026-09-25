@@ -42,6 +42,8 @@ Keynote 会按 USD 舞台声明的 `startTimeCode` 和 `endTimeCode` 播放全�
 
 导入 3D 模型后再导出动画 USDZ 时，还必须检查 Apple 无边记画板内的播放。Three.js 的 `USDZExporter` 默认把可见模型放到 `/Root/Scenes/Scene` 的 `sceneLibrary` 包裹层里；即使动画采样合法、`usdchecker` 通过，并且 Quick Look、Keynote 能播放，无边记仍可能只显示“播放”按钮而不驱动里面的模型。本项目已用用户实际导出的 3D 卡片文件验证：只把 `CoinRing` 等动画节点展开为根节点的直接子树并将根节点标为 `component`，保留原有 `xformOp:orient.timeSamples`、模型、贴图和材质，无边记就能播放。不要为了这个兼容问题重写动画。验收不能只看按钮由“播放”变成“暂停”，必须在画板内实际比较不同时刻的模型姿态；自动化文件检查也不能代替这一项。
 
+Keynote 和无边记的 USDZ 颜色抵消必须分目标处理。几棱体的真机实测档分别对应 Keynote 的 0.5 自发光补光和无边记的 0 补光，均在纸张材质（roughness 0.9、metallic 0）且灯光开启下标定。导出前同一目标档必须覆盖贴图逐像素补偿和纯色补偿；无边记不能沿用旧 117 色档或 Keynote 的补光，否则校准条件失配。偏色抵消开关只控制是否启用补偿，不改变两套目标导出入口；取消勾选时保留原图颜色。
+
 ## Vercel 网页导出：复用 3D 项目的浏览器编码链
 
 部署后的 Vite 页面不能调用本机 Node、Playwright 或系统 FFmpeg，所以 `/api/export` 只适合本地服务，不能作为线上导出方案。本项目应复用透明 3D 展台已经验证的浏览器链路：同源离屏页面按绝对时间逐帧渲染，Canvas 直接生成透明 PNG Blob，再由随站点发布的单线程 `ffmpeg.wasm` 编码 APNG 或 ProRes 4444 MOV。首轮使用需要加载约 32 MB 的编码器，整个过程中页面必须保持开启。
