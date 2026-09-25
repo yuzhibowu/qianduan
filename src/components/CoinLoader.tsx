@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
 import { evaluateCoinMotion, TAU } from "../time";
 import { DEFAULT_APPEARANCE, type SurfaceAppearance } from "../appearance";
+import { WebGLRenderer } from "three";
+import type { CoinModelAsset } from "../coin-model-asset";
 
 type RGB = [number, number, number];
 type M4 = Float32Array;
@@ -24,6 +26,7 @@ interface Props {
   loopDuration?: number;
   style?: CSSProperties;
   appearance?: SurfaceAppearance;
+  coinModel?: CoinModelAsset;
 }
 
 const DEFAULT_COINS: CoinsGroup = {
@@ -249,7 +252,7 @@ export function compile(
   return shader;
 }
 
-export default function CoinLoader({
+function DefaultCoinLoader({
   background = "#0C0C0C",
   baseColor = "#FFFFFF",
   accentColor = "#FFFFFF",
@@ -502,8 +505,100 @@ export default function CoinLoader({
   );
 }
 
+function ImportedCoinLoader({
+  background = "#0C0C0C",
+  speed = 100,
+  distance = 20,
+  coins,
+  timeSeconds,
+  loopDuration = TAU / 0.6,
+  style,
+  coinModel,
+}: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const renderRef = useRef<((time: number) => void) | null>(null);
+  const liveRef = useRef({ speed, distance, timeSeconds, loopDuration, ringSpeed: coins?.ringSpeed ?? DEFAULT_COINS.ringSpeed, coinSize: coins?.coinSize ?? DEFAULT_COINS.coinSize, spread: coins?.spread ?? DEFAULT_COINS.spread });
+  liveRef.current = { speed, distance, timeSeconds, loopDuration, ringSpeed: coins?.ringSpeed ?? DEFAULT_COINS.ringSpeed, coinSize: coins?.coinSize ?? DEFAULT_COINS.coinSize, spread: coins?.spread ?? DEFAULT_COINS.spread };
+  const settings = { ...DEFAULT_COINS, ...coins };
+
+  useEffect(() => {
+    if (!coinModel || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    let disposed = false;
+    let renderer: WebGLRenderer | undefined;
+    let observer: ResizeObserver | undefined;
+    const ready = import("../coin-model").then(async (modelApi) => {
+      const model = await modelApi.loadCoinModel(coinModel);
+      if (disposed) return;
+      const group = modelApi.createCoinModelScene(model, settings.count, settings.coinSize, settings.spread);
+      modelApi.addCoinModelPreviewLights(group.scene);
+      renderer = new WebGLRenderer({
+        canvas,
+        alpha: true,
+        antialias: true,
+        preserveDrawingBuffer: true,
+      });
+      renderer.setClearColor(0x000000, 0);
+      const resizeAndRender = (time: number) => {
+        if (!renderer) return;
+        const dpr = document.documentElement.dataset.render === "frame"
+          ? 1
+          : Math.min(devicePixelRatio || 1, 2);
+        const width = Math.max(1, Math.round(canvas.clientWidth * dpr));
+        const height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+        if (canvas.width !== width || canvas.height !== height)
+          renderer.setSize(width, height, false);
+        const current = liveRef.current;
+        const camera = modelApi.createCoinModelCamera(current.distance, width / height);
+        group.coins.forEach((coin, index) => {
+          const positionAngle = ((index + 1) / group.coins.length) * TAU;
+          coin.position.set(
+            Math.cos(positionAngle) * 3 * current.spread / 100,
+            Math.sin(positionAngle) * 3 * current.spread / 100,
+            0,
+          );
+          coin.scale.setScalar(current.coinSize / 100);
+        });
+        group.setTime(time, current.speed, current.ringSpeed, current.loopDuration);
+        renderer.render(group.scene, camera);
+        canvas.dataset.renderedTime = time.toFixed(6);
+      };
+      renderRef.current = resizeAndRender;
+      observer = new ResizeObserver(() => resizeAndRender(liveRef.current.timeSeconds));
+      observer.observe(canvas);
+      resizeAndRender(liveRef.current.timeSeconds);
+    });
+    const renderAt = (time: number) => renderRef.current?.(time);
+    window.__originKitRenderAt = renderAt;
+    window.__originKitAssetsReady = ready;
+    return () => {
+      disposed = true;
+      observer?.disconnect();
+      renderer?.dispose();
+      renderRef.current = null;
+      if (window.__originKitRenderAt === renderAt) delete window.__originKitRenderAt;
+      if (window.__originKitAssetsReady === ready) delete window.__originKitAssetsReady;
+    };
+  }, [coinModel, settings.count]);
+
+  useEffect(() => {
+    renderRef.current?.(timeSeconds);
+  }, [timeSeconds, speed, distance, loopDuration, settings.coinSize, settings.spread, settings.ringSpeed]);
+
+  return <div style={{ position: "relative", width: "100%", height: "100%", minWidth: 1, minHeight: 1, background, ...style }}>
+    <canvas ref={canvasRef} data-testid="coin-loader-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />
+  </div>;
+}
+
+export default function CoinLoader(props: Props) {
+  return props.coinModel
+    ? <ImportedCoinLoader {...props} />
+    : <DefaultCoinLoader {...props} />;
+}
+
 declare global {
   interface Window {
     __originKitRenderAt?: (absoluteTime: number) => void;
+    __originKitAssetsReady?: Promise<void>;
   }
 }

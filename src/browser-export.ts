@@ -10,6 +10,7 @@ import type { DiscCurveSettings } from "./disc-curve";
 import type { BorderIllustration } from "./border-illustration";
 import type { BorderWrapPosition } from "./alpha-edge-mask";
 import type { ShinyGraphic } from "./shiny-graphic";
+import type { CoinModelAsset } from "./coin-model-asset";
 import { FullFrameApngBuilder } from "./apng";
 import {
   ADAPTIVE_SAFETY_PADDING,
@@ -79,6 +80,7 @@ export type BrowserExportSettings = {
   materialEnabled: boolean;
   frontTexture?: string;
   backTexture?: string;
+  coinModel?: CoinModelAsset;
 };
 
 export type BrowserExportProgress = {
@@ -198,6 +200,7 @@ async function createRenderSession(
   const illustrationKey = settings.borderIllustration ? crypto.randomUUID() : undefined;
   const overlayIllustrationsKey = settings.borderOverlayIllustrations?.length ? crypto.randomUUID() : undefined;
   const shinyGraphicKey = settings.shinyGraphic ? crypto.randomUUID() : undefined;
+  const coinModelKey = settings.coinModel ? crypto.randomUUID() : undefined;
   if (illustrationKey) {
     window.__originKitBorderIllustrations ??= {};
     window.__originKitBorderIllustrations[illustrationKey] = settings.borderIllustration!;
@@ -209,6 +212,10 @@ async function createRenderSession(
   if (shinyGraphicKey) {
     window.__originKitShinyGraphics ??= {};
     window.__originKitShinyGraphics[shinyGraphicKey] = settings.shinyGraphic!;
+  }
+  if (coinModelKey) {
+    window.__originKitCoinModels ??= {};
+    window.__originKitCoinModels[coinModelKey] = settings.coinModel!;
   }
   const query = new URLSearchParams({
     render: "frame",
@@ -244,6 +251,7 @@ async function createRenderSession(
     fontFace: settings.fontFace,
     fontWeight: String(settings.fontWeight),
     ...(shinyGraphicKey ? { shinyGraphicKey } : {}),
+    ...(coinModelKey ? { coinModelKey } : {}),
     shinyGraphicScale: String(settings.shinyGraphicScale),
     interaction: JSON.stringify(settings.interactionTrack),
     bloomStyle: settings.lightBloom.variant,
@@ -281,6 +289,9 @@ async function createRenderSession(
     }
     if (shinyGraphicKey && window.__originKitShinyGraphics) {
       delete window.__originKitShinyGraphics[shinyGraphicKey];
+    }
+    if (coinModelKey && window.__originKitCoinModels) {
+      delete window.__originKitCoinModels[coinModelKey];
     }
   };
   try {

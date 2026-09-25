@@ -19,6 +19,7 @@ import PaperImageRenderer, { type PaperImageSettings } from "./components/PaperI
 import InspiraRipple, { type InspiraRippleSettings } from "./components/InspiraRipple";
 import type { DiscCurveSettings } from "./disc-curve";
 import type { ShinyGraphic } from "./shiny-graphic";
+import type { CoinModelAsset } from "./coin-model-asset";
 
 export type ExportCapability = "mov" | "apng" | "usdz";
 
@@ -57,6 +58,7 @@ export type MotionComponentDefinition = {
       paperImage?: Partial<PaperImageSettings>;
       ripple?: Partial<InspiraRippleSettings>;
       appearance?: SurfaceAppearance;
+      coinModel?: CoinModelAsset;
     }
   >;
   exportCapabilities: ExportCapability[];

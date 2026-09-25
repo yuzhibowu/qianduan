@@ -246,7 +246,7 @@ const subset = (name: string, faces: number[], materialPath: string) =>
     rel material:binding = <${materialPath}>
   }`
     : "";
-const alignedUsdz = (files: { name: string; data: Uint8Array }[]) => {
+export const packAlignedUsdz = (files: { name: string; data: Uint8Array }[]) => {
   let offset = 0;
   const entries: Record<
     string,
@@ -259,6 +259,7 @@ const alignedUsdz = (files: { name: string; data: Uint8Array }[]) => {
   });
   return zipSync(entries, { level: 0 });
 };
+const alignedUsdz = packAlignedUsdz;
 const linearRgb = (hex: string) => {
   const n = Number.parseInt(hex.slice(1), 16);
   return [

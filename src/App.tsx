@@ -51,6 +51,7 @@ import {
 } from "./appearance";
 import { adaptNeonToAspect } from "./neon-adaptation";
 import { borderLoopDuration, neonLoopDuration } from "./border-timing";
+import { coinModelFormat, type CoinModelAsset } from "./coin-model-asset";
 import {
   inspectShinyGraphic,
   shinyGraphicKind,
@@ -518,6 +519,12 @@ export default function App() {
   const queryMaterialEnabled = query.get("materialEnabled") === "true";
   const queryFrontTexture = query.get("frontTexture") ?? undefined;
   const queryBackTexture = query.get("backTexture") ?? undefined;
+  const queryCoinModel: CoinModelAsset | undefined = (() => {
+    const key = query.get("coinModelKey");
+    return key && window.parent !== window
+      ? window.parent.__originKitCoinModels?.[key]
+      : undefined;
+  })();
   const queryBorderIllustration: BorderIllustration | undefined = (() => {
     try {
       const key = query.get("borderIllustrationKey");
@@ -585,6 +592,12 @@ export default function App() {
   const [shinyContentMode, setShinyContentMode] = useState<ShinyContentMode>(queryShinyGraphic ? "graphic" : "text");
   const [shinyGraphicScale, setShinyGraphicScale] = useState(queryShinyGraphicScale);
   const [shinyGraphicError, setShinyGraphicError] = useState("");
+  const [coinModel, setCoinModel] = useState<CoinModelAsset | undefined>(queryCoinModel);
+  const [coinModelMode, setCoinModelMode] = useState<"coin" | "model">(queryCoinModel ? "model" : "coin");
+  const [coinModelError, setCoinModelError] = useState("");
+  const [coinModelNotice, setCoinModelNotice] = useState("");
+  const [coinModelLoading, setCoinModelLoading] = useState(false);
+  const coinModelInputRef = useRef<HTMLInputElement>(null);
   const [interactionTrack, setInteractionTrack] = useState<InteractionSample[]>(queryInteractionTrack);
   const [recordingInteraction, setRecordingInteraction] = useState(false);
   const [replayingInteraction, setReplayingInteraction] = useState(false);
@@ -657,6 +670,7 @@ export default function App() {
   ].includes(componentId);
   const isDiscSplit = componentId === "disc-split";
   const isGyroLoader = componentId === "gyro-loader";
+  const activeCoinModel = componentId === "coin-loader" && coinModelMode === "model" ? coinModel : undefined;
   const isLightBloom = componentId === "light-bloom";
   const isFrostedTypeBand = componentId === "frosted-type-band";
   const isPaperImage = componentId === "paper-image";
@@ -674,7 +688,7 @@ export default function App() {
   const supportsInteractionRecording =
     componentDefinition.triggerMode === "pointer";
   const is3DComponent = ["coin-loader", "disc-split", "gyro-loader"].includes(componentId);
-  const hasMaterialAppearance = is3DComponent || isTextEffect;
+  const hasMaterialAppearance = (is3DComponent || isTextEffect) && !activeCoinModel;
   const appearance = exportMode
     ? { ...DEFAULT_APPEARANCE, enabled: queryMaterialEnabled, material: materialFromPreset(queryMaterial), frontTexture: queryFrontTexture, backTexture: queryBackTexture }
     : appearances[componentId] ?? DEFAULT_APPEARANCE;
@@ -806,6 +820,7 @@ export default function App() {
           borderOverlayIllustrations={queryBorderOverlayIllustrations}
           canvasAspect={exportWidth / Math.max(1, exportHeight)}
           appearance={appearance}
+          coinModel={queryCoinModel}
         />
       </div>
     );
@@ -867,6 +882,7 @@ export default function App() {
       materialEnabled: appearance.enabled,
       frontTexture: appearance.frontTexture,
       backTexture: appearance.backTexture,
+      coinModel: activeCoinModel,
     }),
     [
       componentId,
@@ -915,6 +931,7 @@ export default function App() {
       appearance.enabled,
       appearance.frontTexture,
       appearance.backTexture,
+      activeCoinModel,
     ],
   );
   // Current USDZ geometries are rings, wedges, tori or a curved band rather
@@ -1113,7 +1130,22 @@ export default function App() {
     });
     try {
       await new Promise((resolve) => setTimeout(resolve, 20));
-      const result = isFrostedTypeBand
+      const result = activeCoinModel
+        ? await (await import("./coin-model")).buildCoinModelUsdz({
+            asset: activeCoinModel,
+            duration,
+            delay,
+            fps,
+            speed,
+            ringSpeed,
+            count,
+            coinSize,
+            spread,
+            colorComp: colorCorrection ? activeColorProfile : undefined,
+            emissiveLift,
+            unlit,
+          })
+        : isFrostedTypeBand
         ? await buildFrostedTypeBandUsdz(usdzPayload)
         : isDiscSplit
         ? await buildDiscSplitUsdz(usdzPayload)
@@ -1220,6 +1252,30 @@ export default function App() {
       }));
     reader.readAsDataURL(file);
   };
+  async function loadCoinModelFile(file?: File) {
+    if (!file) return;
+    const format = coinModelFormat(file);
+    if (!format) {
+      setCoinModelError("请选择 GLB 或 USDZ 模型文件");
+      return;
+    }
+    setCoinModelError("");
+    setCoinModelLoading(true);
+    try {
+      const asset: CoinModelAsset = { name: file.name, format, bytes: await file.arrayBuffer() };
+      const loaded = await (await import("./coin-model")).loadCoinModel(asset);
+      setCoinModel(asset);
+      setCoinModelMode("model");
+      setCoinModelNotice(loaded.userData.embeddedAnimations
+        ? "模型自带动画暂不叠加；使用 Coin Loader 的环绕与翻转动画。"
+        : "");
+    } catch (error) {
+      setCoinModelError(error instanceof Error ? error.message : "无法读取 3D 模型");
+    } finally {
+      setCoinModelLoading(false);
+      if (coinModelInputRef.current) coinModelInputRef.current.value = "";
+    }
+  }
   async function loadBorderPng(file?: File, target: "background" | "overlay" = "background") {
     if (!file || file.type !== "image/png" || !isBorderComponent) return;
     try {
@@ -1358,11 +1414,19 @@ export default function App() {
             onDragOver={(event) => {
               const acceptsBorder = isBorderComponent && Array.from(event.dataTransfer.items).some((item) => item.type === "image/png");
               const acceptsShiny = isShinyPill && Array.from(event.dataTransfer.items).some((item) => item.type === "image/png" || item.type === "image/svg+xml");
-              if (!acceptsBorder && !acceptsShiny && !event.dataTransfer.types.includes("Files")) return;
+              const acceptsCoin = componentId === "coin-loader" && event.dataTransfer.types.includes("Files");
+              if (!acceptsBorder && !acceptsShiny && !acceptsCoin && !event.dataTransfer.types.includes("Files")) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "copy";
             }}
             onDrop={(event) => {
+              if (componentId === "coin-loader" && event.dataTransfer.files.length) {
+                event.preventDefault();
+                const modelFile = Array.from(event.dataTransfer.files).find((candidate) => coinModelFormat(candidate));
+                if (modelFile) void loadCoinModelFile(modelFile);
+                else setCoinModelError("请选择 GLB 或 USDZ 模型文件");
+                return;
+              }
               const file = Array.from(event.dataTransfer.files).find((candidate) =>
                 isShinyPill ? Boolean(shinyGraphicKind(candidate)) : candidate.type === "image/png",
               );
@@ -1433,6 +1497,7 @@ export default function App() {
               timeSeconds={previewTime}
               loopDuration={duration}
               appearance={appearance}
+              coinModel={activeCoinModel}
             />
           </div>
         </div>
@@ -1518,7 +1583,7 @@ export default function App() {
             </section>
           )}
           <section>
-            {!isPaperImage && <h3 className="field-heading color-heading">颜色</h3>}
+            {!isPaperImage && !activeCoinModel && <h3 className="field-heading color-heading">颜色</h3>}
             {isInspiraRipple && (
               <>
                 <div className="opts">
@@ -1600,7 +1665,7 @@ export default function App() {
                 </label>
               </div>
             )}
-            {!isFrostedTypeBand && !isPaperImage && !isInspiraRipple && <div className={`color-row ${isShinyGraphicMode ? "single" : ""} ${componentId === "pulsating-border" ? "three" : ""}`}>
+            {!isFrostedTypeBand && !isPaperImage && !isInspiraRipple && !activeCoinModel && <div className={`color-row ${isShinyGraphicMode ? "single" : ""} ${componentId === "pulsating-border" ? "three" : ""}`}>
               {!isShinyGraphicMode && <div className="field color-field">
                 <button
                   type="button"
@@ -2337,8 +2402,26 @@ export default function App() {
             )}
             {componentId === "coin-loader" && (
               <>
+                <div className="field coin-model-source">
+                  <span>内容来源</span>
+                  <div className="opts" role="group" aria-label="硬币内容来源">
+                    <button className={`opt ${!activeCoinModel ? "active" : ""}`} aria-pressed={!activeCoinModel} onClick={() => setCoinModelMode("coin")}>默认硬币</button>
+                    <button className={`opt ${activeCoinModel ? "active" : ""}`} aria-pressed={Boolean(activeCoinModel)} onClick={() => coinModel ? setCoinModelMode("model") : coinModelInputRef.current?.click()}>3D 模型</button>
+                  </div>
+                </div>
+                <div className="field coin-model-import">
+                  <span>模型素材</span>
+                  <div className="opts">
+                    <button className="btn" disabled={coinModelLoading} onClick={() => coinModelInputRef.current?.click()}>{coinModelLoading ? "读取中…" : coinModel ? "替换模型" : "添加模型"}</button>
+                    <button className="btn" disabled={!coinModel} onClick={() => { setCoinModel(undefined); setCoinModelMode("coin"); setCoinModelError(""); setCoinModelNotice(""); }}>去掉</button>
+                  </div>
+                  <input ref={coinModelInputRef} type="file" accept=".glb,.usdz,model/gltf-binary,model/vnd.usdz+zip" hidden onChange={(event) => void loadCoinModelFile(event.target.files?.[0])} />
+                  {coinModel && <small className="coin-model-name">{coinModel.name} · 已导入</small>}
+                  {coinModelNotice && activeCoinModel && <small className="coin-model-name">{coinModelNotice}</small>}
+                  {coinModelError && <small className="error">{coinModelError}</small>}
+                </div>
                 <Slider
-                  label="硬币翻转"
+                  label={activeCoinModel ? "模型翻转" : "硬币翻转"}
                   value={speed}
                   min={0}
                   max={200}
@@ -2375,7 +2458,7 @@ export default function App() {
                   ]}
                 />
                 <Slider
-                  label="硬币数量"
+                  label={activeCoinModel ? "模型数量" : "硬币数量"}
                   value={count}
                   min={1}
                   max={16}
@@ -2383,7 +2466,7 @@ export default function App() {
                   onChange={setCount}
                 />
                 <Slider
-                  label="硬币大小"
+                  label={activeCoinModel ? "模型大小" : "硬币大小"}
                   value={coinSize}
                   min={20}
                   max={180}
