@@ -64,6 +64,10 @@ describe("Coin Loader imported 3D model", () => {
     expect(usda).toContain('playbackMode = "loop"');
     expect(usda).toContain('autoPlay = true');
     expect(usda).toContain("xformOp:orient.timeSamples");
+    expect(usda).toContain('def Xform "Root" (\n\tkind = "component"');
+    expect(usda).toMatch(/def Xform "Root" \([\s\S]*?\)\n\{\n\tdef Xform "CoinRing"/);
+    expect(usda).not.toContain('def Scope "Scenes"');
+    expect(usda).not.toContain('def Xform "Scene"');
     const output = join(scratch, "imported-glb.usdz");
     writeFileSync(output, result.bytes);
     execFileSync("/usr/bin/usdchecker", [output]);

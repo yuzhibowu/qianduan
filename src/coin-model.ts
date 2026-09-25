@@ -169,6 +169,46 @@ export type CoinModelUsdzSettings = {
   unlit?: boolean;
 };
 
+function primBody(usda: string, declaration: string, from = 0) {
+  const start = usda.indexOf(declaration, from);
+  if (start < 0) throw new Error(`USDZ 缺少 ${declaration} 节点`);
+  let metadataDepth = 0;
+  let open = -1;
+  for (let index = start + declaration.length; index < usda.length; index += 1) {
+    const character = usda[index];
+    if (character === "(") metadataDepth += 1;
+    else if (character === ")") metadataDepth -= 1;
+    else if (character === "{" && metadataDepth === 0) {
+      open = index;
+      break;
+    }
+  }
+  if (open < 0) throw new Error(`USDZ 的 ${declaration} 节点格式无效`);
+  let depth = 0;
+  for (let index = open; index < usda.length; index += 1) {
+    if (usda[index] === "{") depth += 1;
+    else if (usda[index] === "}" && --depth === 0)
+      return { start, open, close: index };
+  }
+  throw new Error(`USDZ 的 ${declaration} 节点未闭合`);
+}
+
+function flattenThreeScene(usda: string) {
+  // USDZExporter nests the visible scene under a sceneLibrary Scope. Freeform
+  // plays direct-child xforms but keeps animated xforms below this wrapper
+  // frozen, even though Keynote and Quick Look accept both layouts.
+  const root = primBody(usda, 'def Xform "Root"');
+  const scenes = primBody(usda, 'def Scope "Scenes"', root.open);
+  const scene = primBody(usda, 'def Xform "Scene"', scenes.open);
+  if (usda.slice(root.open + 1, scenes.start).trim()
+    || usda.slice(scenes.close + 1, root.close).trim()
+    || usda.slice(scenes.open + 1, scene.start).trim()
+    || usda.slice(scene.close + 1, scenes.close).trim())
+    throw new Error("USDZ 场景层级已变化，无法安全展开动画节点");
+  const children = usda.slice(scene.open + 1, scene.close).replace(/^\t\t/gm, "");
+  return `${usda.slice(0, root.start)}def Xform "Root" (\n\tkind = "component"\n)\n{${children}\n}${usda.slice(root.close + 1)}`;
+}
+
 function compensateModelMaterials(model: Group, profile: ColorComp, lift: number, unlit: boolean) {
   const textureCache = new Map<string, Texture>();
   const compensateTexture = (texture: Texture, tint: Color) => {
@@ -263,7 +303,7 @@ export async function buildCoinModelUsdz(settings: CoinModelUsdzSettings) {
   const entries = unzipSync(new Uint8Array(raw));
   const root = entries["model.usda"];
   if (!root) throw new Error("模型 USDZ 导出缺少根图层");
-  const usda = strFromU8(root).replace(
+  const usda = flattenThreeScene(strFromU8(root)).replace(
     /upAxis = "Y"/,
     'upAxis = "Y"\n\tplaybackMode = "loop"\n\tautoPlay = true',
   );
