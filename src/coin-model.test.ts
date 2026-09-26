@@ -67,7 +67,7 @@ describe("Coin Loader imported 3D model", () => {
     expect(usda).toContain('autoPlay = true');
     expect(usda).toContain("xformOp:orient.timeSamples");
     expect(usda).toContain('def Xform "Root" (\n\tkind = "component"');
-    expect(usda).toMatch(/def Xform "Root" \([\s\S]*?\)\n\{\n\tdef Xform "CoinRing"/);
+    expect(usda).toMatch(/def Xform "Root" \([\s\S]*?\)\n\{\n\tfloat3\[\] extentsHint = \[[^\n]+\]\n\tdef Xform "CoinRing"/);
     expect(usda).not.toContain('def Scope "Scenes"');
     expect(usda).not.toContain('def Xform "Scene"');
     const output = join(scratch, "imported-glb.usdz");
@@ -139,6 +139,12 @@ describe("Coin Loader imported 3D model", () => {
     const usda = strFromU8(unzipSync(result.bytes)["model.usda"]);
     expect(usda).toContain("endTimeCode = 47");
     expect(usda).toContain("xformOp:translate.timeSamples");
+    const bounds = usda.match(/float3\[\] extentsHint = \[\(([^)]+)\), \(([^)]+)\)\]/);
+    expect(bounds).not.toBeNull();
+    const minimum = bounds![1].split(",").map(Number);
+    const maximum = bounds![2].split(",").map(Number);
+    expect(maximum[0] - minimum[0]).toBeGreaterThan(3.5);
+    expect(maximum[1] - minimum[1]).toBeCloseTo(maximum[0] - minimum[0]);
     const output = join(scratch, "fan-opening.usdz");
     writeFileSync(output, result.bytes);
     execFileSync("/usr/bin/usdchecker", [output]);

@@ -254,7 +254,7 @@ function primBody(usda: string, declaration: string, from = 0) {
   throw new Error(`USDZ 的 ${declaration} 节点未闭合`);
 }
 
-function flattenThreeScene(usda: string) {
+function flattenThreeScene(usda: string, animationBounds: Box3) {
   // USDZExporter nests the visible scene under a sceneLibrary Scope. Freeform
   // plays direct-child xforms but keeps animated xforms below this wrapper
   // frozen, even though Keynote and Quick Look accept both layouts.
@@ -267,7 +267,15 @@ function flattenThreeScene(usda: string) {
     || usda.slice(scene.close + 1, scenes.close).trim())
     throw new Error("USDZ 场景层级已变化，无法安全展开动画节点");
   const children = usda.slice(scene.open + 1, scene.close).replace(/^\t\t/gm, "");
-  return `${usda.slice(0, root.start)}def Xform "Root" (\n\tkind = "component"\n)\n{${children}\n}${usda.slice(root.close + 1)}`;
+  const format = (value: Vector3) => `(${value.x.toFixed(6)}, ${value.y.toFixed(6)}, ${value.z.toFixed(6)})`;
+  const size = animationBounds.getSize(new Vector3());
+  const center = animationBounds.getCenter(new Vector3());
+  const halfSide = Math.max(size.x, size.y, 0.001) * 0.6;
+  const depthPadding = halfSide / 6;
+  const minimum = new Vector3(center.x - halfSide, center.y - halfSide, animationBounds.min.z - depthPadding);
+  const maximum = new Vector3(center.x + halfSide, center.y + halfSide, animationBounds.max.z + depthPadding);
+  const extentsHint = `\n\tfloat3[] extentsHint = [${format(minimum)}, ${format(maximum)}]`;
+  return `${usda.slice(0, root.start)}def Xform "Root" (\n\tkind = "component"\n)\n{${extentsHint}${children}\n}${usda.slice(root.close + 1)}`;
 }
 
 function compensateModelMaterials(model: Group, profile: ColorComp, lift: number, unlit: boolean) {
@@ -358,11 +366,15 @@ export async function buildCoinModelUsdz(settings: CoinModelUsdzSettings) {
   const targets = [ring, ...coins];
   const values = targets.map(() => new Float32Array(frames * 4));
   const positions = coins.map(() => new Float32Array(frames * 3));
+  const localBounds = coins.map((coin) => new Box3().setFromObject(coin.children[0].clone(true)));
+  const animationBounds = new Box3();
   for (let frame = 0; frame < frames; frame += 1) {
     times[frame] = frame / settings.fps;
     setTime(Math.max(0, times[frame] - settings.delay), settings.speed, settings.ringSpeed, settings.duration, true, settings.fan);
     targets.forEach((target, index) => target.quaternion.toArray(values[index], frame * 4));
     coins.forEach((coin, index) => coin.position.toArray(positions[index], frame * 3));
+    scene.updateMatrixWorld(true);
+    coins.forEach((coin, index) => animationBounds.union(localBounds[index].clone().applyMatrix4(coin.matrixWorld)));
   }
   const tracks: KeyframeTrack[] = targets.map((target, index) =>
     new QuaternionKeyframeTrack(`${target.name}.quaternion`, times, values[index]));
@@ -381,7 +393,7 @@ export async function buildCoinModelUsdz(settings: CoinModelUsdzSettings) {
   const entries = unzipSync(new Uint8Array(raw));
   const root = entries["model.usda"];
   if (!root) throw new Error("模型 USDZ 导出缺少根图层");
-  const usda = flattenThreeScene(strFromU8(root)).replace(
+  const usda = flattenThreeScene(strFromU8(root), animationBounds).replace(
     /upAxis = "Y"/,
     'upAxis = "Y"\n\tplaybackMode = "loop"\n\tautoPlay = true',
   );
