@@ -2,25 +2,17 @@ import { defineConfig, type Plugin } from "vite"
 import react from "@vitejs/plugin-react"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
+import { readFileSync } from "node:fs"
 import { nativeExportBridge } from "./scripts/native-export-bridge.mjs"
 
 const run = promisify(execFile)
 
 function buildVersion() {
-  const parts = new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
-    year: "2-digit",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date()).reduce<Record<string, string>>((result, part) => {
-    result[part.type] = part.value;
-    return result;
-  }, {});
-  return `${parts.year}${parts.month}${parts.day}X${parts.hour}${parts.minute}${parts.second}`;
+  const version = readFileSync(new URL("./app-version.txt", import.meta.url), "utf8").trim()
+  if (!/^\d{6}X[1-9]\d*$/.test(version)) {
+    throw new Error(`无效的网页版本号：${version}`)
+  }
+  return version
 }
 
 function localFontsBridge(): Plugin {

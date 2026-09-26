@@ -66,6 +66,7 @@ import {
 } from "./export-resolution";
 
 type ColorTarget = "keynote" | "freeform";
+type UsdzExportTarget = ColorTarget | "plain";
 type ShinyContentMode = "text" | "graphic";
 type ExportJob = BrowserExportProgress & {
   running: boolean;
@@ -638,7 +639,7 @@ export default function App() {
   const [background, setBackground] = useState("transparent");
   const [loop, setLoop] = useState(true);
   const [pngCompression, setPngCompression] = useState(true);
-  const [colorCorrection, setColorCorrection] = useState(true);
+  const [colorCorrection, setColorCorrection] = useState(false);
   const [appearances, setAppearances] = useState<Record<string, SurfaceAppearance>>({
     "coin-loader": { ...DEFAULT_APPEARANCE, material: materialFromPreset("silver") },
     "disc-split": { ...DEFAULT_APPEARANCE, material: materialFromPreset("gold") },
@@ -660,9 +661,10 @@ export default function App() {
     format: BrowserExportFormat;
     status: string;
   } | null>(null);
-  const [usdzJobs, setUsdzJobs] = useState<Record<ColorTarget, {
+  const [usdzJobs, setUsdzJobs] = useState<Record<UsdzExportTarget, {
     running: boolean; outputPath: string; summary: string; error: string;
   }>>({
+    plain: { running: false, outputPath: "", summary: "", error: "" },
     keynote: { running: false, outputPath: "", summary: "", error: "" },
     freeform: { running: false, outputPath: "", summary: "", error: "" },
   });
@@ -1119,12 +1121,12 @@ export default function App() {
     });
   }
 
-  async function exportUsdz(target: ColorTarget) {
+  async function exportUsdz(target: UsdzExportTarget) {
     if (!componentDefinition.exportCapabilities.includes("usdz")) return;
-    const profile = colorProfileFor(target);
-    const colorComp = colorCorrection ? profile : undefined;
-    const emissiveLift = colorCorrection ? profile.calibratedLift ?? 0 : 0;
-    const unlit = colorCorrection && Boolean(profile.calibratedUnlit);
+    const profile = colorCorrection && target !== "plain" ? colorProfileFor(target) : undefined;
+    const colorComp = profile;
+    const emissiveLift = profile?.calibratedLift ?? 0;
+    const unlit = Boolean(profile?.calibratedUnlit);
     const usdzPayload = { ...exportPayload, colorComp, emissiveLift, unlit, appearance };
     setUsdzJobs((jobs) => ({ ...jobs, [target]: {
       running: true,
@@ -1160,7 +1162,7 @@ export default function App() {
           : await buildCoinUsdz(usdzPayload);
       downloadUsdz(
         result.bytes,
-        `OriginKit-${componentDefinition.name.replaceAll(" ", "-")}-${target === "keynote" ? "Keynote" : "Freeform"}-${Date.now()}.usdz`,
+        `OriginKit-${componentDefinition.name.replaceAll(" ", "-")}-${target === "plain" ? "USDZ" : target === "keynote" ? "Keynote" : "Freeform"}-${Date.now()}.usdz`,
       );
       setUsdzJobs((jobs) => ({ ...jobs, [target]: {
         running: false,
@@ -2772,6 +2774,7 @@ export default function App() {
                   <input
                     type="checkbox"
                     checked={colorCorrection}
+                    disabled={Object.values(usdzJobs).some((job) => job.running)}
                     onChange={(event) =>
                       setColorCorrection(event.target.checked)
                     }
@@ -2780,17 +2783,17 @@ export default function App() {
                 </label>
               </div>
             )}
-            {(["keynote", "freeform"] as const).map((target) => {
+            {(colorCorrection ? ["keynote", "freeform"] as const : ["plain"] as const).map((target) => {
               const job = usdzJobs[target];
-              const label = target === "keynote" ? "Keynote" : "无边记";
+              const label = target === "plain" ? "USDZ" : target === "keynote" ? "Keynote" : "无边记";
               return <div className="usdz-target" key={target}>
                 <button
                   className="btn-primary usdz-export"
                   title={componentDefinition.exportCapabilities.includes("usdz") ? "" : "该网页特效无法转换为真实 3D 几何"}
-                  disabled={exportJobs.mov.running || exportJobs.apng.running || usdzJobs.keynote.running || usdzJobs.freeform.running || !componentDefinition.exportCapabilities.includes("usdz")}
+                  disabled={exportJobs.mov.running || exportJobs.apng.running || Object.values(usdzJobs).some((activeJob) => activeJob.running) || !componentDefinition.exportCapabilities.includes("usdz")}
                   onClick={() => void exportUsdz(target)}
                 >
-                  {job.running ? `正在生成${label} USDZ…` : componentDefinition.exportCapabilities.includes("usdz") ? `导出给${label} · 动画 USDZ` : `该组件不支持${label} USDZ`}
+                  {job.running ? `正在生成${label}…` : componentDefinition.exportCapabilities.includes("usdz") ? `导出${label}` : "该组件不支持 USDZ"}
                 </button>
                 {job.summary && <p className="status">{job.summary}</p>}
                 {job.error && <p className="error">{job.error}</p>}

@@ -7,6 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "app": "npm run build && node server.js",
     "build": "tsc -b && vite build",
+    "version:next": "node scripts/bump-app-version.mjs",
     "test": "vitest run",
     "export:frame": "node scripts/export-frame.mjs",
     "export:sequence": "node scripts/export-sequence.mjs",

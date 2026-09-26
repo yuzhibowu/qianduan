@@ -2,6 +2,7 @@ import {
   AnimationClip,
   AmbientLight,
   Box3,
+  BoxGeometry,
   Color,
   DirectionalLight,
   Group,
@@ -268,14 +269,20 @@ function flattenThreeScene(usda: string, animationBounds: Box3) {
     throw new Error("USDZ 场景层级已变化，无法安全展开动画节点");
   const children = usda.slice(scene.open + 1, scene.close).replace(/^\t\t/gm, "");
   const format = (value: Vector3) => `(${value.x.toFixed(6)}, ${value.y.toFixed(6)}, ${value.z.toFixed(6)})`;
+  const { minimum, maximum } = framingBounds(animationBounds);
+  const extentsHint = `\n\tfloat3[] extentsHint = [${format(minimum)}, ${format(maximum)}]`;
+  return `${usda.slice(0, root.start)}def Xform "Root" (\n\tkind = "component"\n)\n{${extentsHint}${children}\n}${usda.slice(root.close + 1)}`;
+}
+
+function framingBounds(animationBounds: Box3) {
   const size = animationBounds.getSize(new Vector3());
   const center = animationBounds.getCenter(new Vector3());
   const halfSide = Math.max(size.x, size.y, 0.001) * 0.6;
   const depthPadding = halfSide / 6;
-  const minimum = new Vector3(center.x - halfSide, center.y - halfSide, animationBounds.min.z - depthPadding);
-  const maximum = new Vector3(center.x + halfSide, center.y + halfSide, animationBounds.max.z + depthPadding);
-  const extentsHint = `\n\tfloat3[] extentsHint = [${format(minimum)}, ${format(maximum)}]`;
-  return `${usda.slice(0, root.start)}def Xform "Root" (\n\tkind = "component"\n)\n{${extentsHint}${children}\n}${usda.slice(root.close + 1)}`;
+  return {
+    minimum: new Vector3(center.x - halfSide, center.y - halfSide, animationBounds.min.z - depthPadding),
+    maximum: new Vector3(center.x + halfSide, center.y + halfSide, animationBounds.max.z + depthPadding),
+  };
 }
 
 function compensateModelMaterials(model: Group, profile: ColorComp, lift: number, unlit: boolean) {
@@ -382,6 +389,18 @@ export async function buildCoinModelUsdz(settings: CoinModelUsdzSettings) {
     tracks.push(new VectorKeyframeTrack(`${coin.name}.position`, times, positions[index]));
   });
   const clip = new AnimationClip("Coin Loader", (frames - 1) / settings.fps, tracks);
+  // Freeform may frame an animated USDZ from its opening geometry and ignore
+  // extentsHint. Keep a fully transparent, static mesh at the full-cycle bounds
+  // so the visible cards fit without changing their animation or materials.
+  const { minimum, maximum } = framingBounds(animationBounds);
+  const guideSize = maximum.clone().sub(minimum);
+  const framingGuide = new Mesh(
+    new BoxGeometry(guideSize.x, guideSize.y, Math.max(guideSize.z, 0.001)),
+    new MeshStandardMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+  );
+  framingGuide.name = "FramingGuide";
+  framingGuide.position.copy(minimum).add(maximum).multiplyScalar(0.5);
+  scene.add(framingGuide);
   scene.updateMatrixWorld(true);
   const raw = await new USDZExporter().parseAsync(scene, {
     animations: [clip],

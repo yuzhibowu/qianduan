@@ -141,6 +141,9 @@ describe("Coin Loader imported 3D model", () => {
     expect(usda).toContain("xformOp:translate.timeSamples");
     const bounds = usda.match(/float3\[\] extentsHint = \[\(([^)]+)\), \(([^)]+)\)\]/);
     expect(bounds).not.toBeNull();
+    expect(usda).toMatch(/def Xform "FramingGuide" \(\s*prepend references = @\.\/geometries\/Geometry_\d+\.usda@<\/Geometry>/);
+    expect(usda).toMatch(/def Xform "FramingGuide"[\s\S]*?rel material:binding = <\/Materials\/Material_\d+>/);
+    expect(usda).toMatch(/float inputs:opacity = 0(?:\.0+)?/);
     const minimum = bounds![1].split(",").map(Number);
     const maximum = bounds![2].split(",").map(Number);
     expect(maximum[0] - minimum[0]).toBeGreaterThan(3.5);
