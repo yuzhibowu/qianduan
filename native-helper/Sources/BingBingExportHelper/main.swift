@@ -8,6 +8,7 @@ private let allowedOrigins = [
   "https://qianduan.vercel.app",
   "https://qianduan-zeta.vercel.app",
   "https://qianduan-bingbingshow.vercel.app",
+  "https://png-motion.vercel.app",
   "http://127.0.0.1:",
   "http://localhost:",
 ]
@@ -278,7 +279,7 @@ private final class HelperServer: @unchecked Sendable {
     if request.method == "OPTIONS" { return send(connection, status: 204, headers: headers) }
     do {
       if request.method == "GET" && request.path == "/v1/capabilities" {
-        return send(connection, headers: headers, body: json(["available": true, "prores4444": ffmpegPath() != nil, "nativeApng": true, "frameBatch": true, "helperVersion": "0.2.0"]))
+        return send(connection, headers: headers, body: json(["available": true, "prores4444": ffmpegPath() != nil, "nativeApng": true, "frameBatch": true, "helperVersion": "0.2.1"]))
       }
       if request.method == "POST" && request.path == "/v1/start" {
         let input = try JSONSerialization.jsonObject(with: request.body) as? [String: Any] ?? [:]
@@ -346,7 +347,7 @@ private final class HelperServer: @unchecked Sendable {
 }
 
 private let app = NSApplication.shared
-private let delegate = AppDelegate()
+private let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
 app.run()
