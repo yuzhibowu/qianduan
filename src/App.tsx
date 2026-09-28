@@ -2759,7 +2759,7 @@ export default function App() {
               disabled={exportJobs.mov.running}
               onClick={() => startExport("mov")}
             >
-              {exportJobs.mov.running ? "正在导出 MOV…" : "导出 MOV"}
+              {exportJobs.mov.running ? "正在导出 ProRes4444…" : "导出ProRes4444"}
             </button>
             <button
               className="btn-primary apng"
