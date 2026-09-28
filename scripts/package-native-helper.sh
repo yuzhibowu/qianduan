@@ -17,7 +17,7 @@ else
   sdk_path="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
   /bin/mkdir -p "$module_cache"
   for arch in arm64 x86_64; do
-    /usr/bin/swiftc "$helper_root/Sources/BingBingExportHelper/main.swift" \
+    /usr/bin/swiftc "$helper_root"/Sources/BingBingExportHelper/*.swift \
       -O -swift-version 5 -sdk "$sdk_path" \
       -module-cache-path "$module_cache" \
       -target "${arch}-apple-macosx13.0" \
@@ -34,13 +34,13 @@ fi
 /bin/cp "$helper_root/Info.plist" "$app_path/Contents/Info.plist"
 /bin/cp "$helper_root/Resources/AppIcon.icns" "$app_path/Contents/Resources/AppIcon.icns"
 /usr/bin/codesign --force --deep --sign "$sign_identity" "$app_path"
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app_path" "$output_root/BingBing-Export-Helper-macOS.zip"
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app_path" "$output_root/BingBing-Export-Helper-macOS-universal-AppleSilicon-Intel.zip"
 /bin/rm -rf "$staging_path"
 /bin/mkdir -p "$staging_path"
 /bin/cp -R "$app_path" "$staging_path/饼饼高速导出助手.app"
 /bin/ln -s /Applications "$staging_path/Applications"
-/usr/bin/hdiutil create -ov -quiet -volname "饼饼高速导出助手" -srcfolder "$staging_path" "$output_root/BingBing-Export-Helper-macOS.dmg"
+/usr/bin/hdiutil create -ov -quiet -volname "饼饼高速导出助手" -srcfolder "$staging_path" "$output_root/BingBing-Export-Helper-macOS-universal-AppleSilicon-Intel.dmg"
 /bin/rm -rf "$staging_path"
 /usr/bin/codesign --verify --deep --strict "$app_path"
-/usr/bin/hdiutil verify "$output_root/BingBing-Export-Helper-macOS.dmg" >/dev/null
+/usr/bin/hdiutil verify "$output_root/BingBing-Export-Helper-macOS-universal-AppleSilicon-Intel.dmg" >/dev/null
 echo "$app_path"

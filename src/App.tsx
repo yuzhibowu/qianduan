@@ -662,6 +662,7 @@ export default function App() {
   const [exportJobs, setExportJobs] = useState<Record<BrowserExportFormat, ExportJob>>({
     mov: emptyExportJob(),
     apng: emptyExportJob(),
+    "hevc-alpha": emptyExportJob(),
   });
   const [helperPrompt, setHelperPrompt] = useState<{
     format: BrowserExportFormat;
@@ -1038,7 +1039,7 @@ export default function App() {
   };
 
   async function startExport(format: BrowserExportFormat, skipHelperPrompt = false) {
-    if (!skipHelperPrompt && localStorage.getItem("bingbing-helper-browser-fallback") !== "accepted") {
+    if (!skipHelperPrompt && (format === "hevc-alpha" || localStorage.getItem("bingbing-helper-browser-fallback") !== "accepted")) {
       const native = await detectNativeExporter(format, new AbortController().signal);
       if (!native) {
         setHelperPrompt({ format, status: "" });
@@ -1128,6 +1129,7 @@ export default function App() {
   function continueWithBrowserExport() {
     if (!helperPrompt) return;
     const format = helperPrompt.format;
+    if (format === "hevc-alpha") return;
     localStorage.setItem("bingbing-helper-browser-fallback", "accepted");
     setHelperPrompt(null);
     void startExport(format, true);
@@ -2735,17 +2737,19 @@ export default function App() {
             </label>
             {helperPrompt && (
               <div className="helper-install-prompt" role="dialog" aria-label="安装高速导出助手">
-                <p>安装“饼饼高速导出助手”，可以使用本机高速导出。</p>
-                <div className="helper-install-actions">
+                <p>{helperPrompt.format === "hevc-alpha" ? "透明 HEVC 需要 0.3.0 或更新的饼饼高速导出助手，以及支持 HEVC Alpha 的 Mac。" : "安装“饼饼高速导出助手”，可以使用本机高速导出。"}</p>
+                <div className={`helper-install-actions ${helperPrompt.format === "hevc-alpha" ? "native-only" : ""}`}>
                   <a
                     className="btn"
-                    href="https://github.com/yuzhibowu/qianduan/releases/latest/download/BingBing-Export-Helper-macOS-universal-AppleSilicon-Intel.dmg"
+                    href={helperPrompt.format === "hevc-alpha"
+                      ? "https://github.com/yuzhibowu/qianduan/releases/download/v0.3.0-helper/BingBing-Export-Helper-macOS-universal-AppleSilicon-Intel.dmg"
+                      : "https://github.com/yuzhibowu/qianduan/releases/latest/download/BingBing-Export-Helper-macOS-universal-AppleSilicon-Intel.dmg"}
                     onClick={() => setHelperPrompt((current) => current ? { ...current, status: "下载并打开助手后，点击“重新检测”。" } : current)}
                   >
-                    安装高速助手
+                    {helperPrompt.format === "hevc-alpha" ? "安装 0.3.0 助手" : "安装高速助手"}
                   </a>
                   <button className="btn" onClick={() => void retryNativeHelper()}>重新检测</button>
-                  <button className="btn" onClick={continueWithBrowserExport}>继续浏览器导出</button>
+                  {helperPrompt.format !== "hevc-alpha" && <button className="btn" onClick={continueWithBrowserExport}>继续浏览器导出</button>}
                 </div>
                 {helperPrompt.status && <p className="status">{helperPrompt.status}</p>}
               </div>
@@ -2764,9 +2768,16 @@ export default function App() {
             >
               {exportJobs.apng.running ? "正在导出 PNG 动图…" : "导出 PNG 动图"}
             </button>
-            {(["mov", "apng"] as const).map((format) => {
+            <button
+              className="btn-primary hevc-alpha"
+              disabled={exportJobs["hevc-alpha"].running}
+              onClick={() => startExport("hevc-alpha")}
+            >
+              {exportJobs["hevc-alpha"].running ? "正在导出 HEVC Alpha…" : "导出透明 HEVC Alpha"}
+            </button>
+            {(["mov", "apng", "hevc-alpha"] as const).map((format) => {
               const exportJob = exportJobs[format];
-              const formatName = format === "mov" ? "MOV" : "PNG 动图";
+              const formatName = format === "mov" ? "MOV" : format === "hevc-alpha" ? "HEVC Alpha" : "PNG 动图";
               return (
                 <div key={format}>
                   {exportJob.running && (
@@ -2828,7 +2839,7 @@ export default function App() {
                 <button
                   className="btn-primary usdz-export"
                   title={componentDefinition.exportCapabilities.includes("usdz") ? "" : "该网页特效无法转换为真实 3D 几何"}
-                  disabled={exportJobs.mov.running || exportJobs.apng.running || Object.values(usdzJobs).some((activeJob) => activeJob.running) || !componentDefinition.exportCapabilities.includes("usdz")}
+                  disabled={exportJobs.mov.running || exportJobs.apng.running || exportJobs["hevc-alpha"].running || Object.values(usdzJobs).some((activeJob) => activeJob.running) || !componentDefinition.exportCapabilities.includes("usdz")}
                   onClick={() => void exportUsdz(target)}
                 >
                   {job.running ? `正在生成${label}…` : componentDefinition.exportCapabilities.includes("usdz") ? `导出${label}` : "该组件不支持 USDZ"}

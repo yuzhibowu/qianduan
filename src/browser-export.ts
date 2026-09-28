@@ -30,7 +30,7 @@ import {
   type NativeExportSession,
 } from "./native-export";
 
-export type BrowserExportFormat = "mov" | "apng";
+export type BrowserExportFormat = "mov" | "apng" | "hevc-alpha";
 
 export type BrowserExportSettings = {
   componentId: string;
@@ -470,7 +470,7 @@ export async function exportInBrowser(
   settings: BrowserExportSettings,
   report: (progress: BrowserExportProgress) => void,
 ): Promise<BrowserExportResult> {
-  if (activeControllers.has(format)) throw new Error(`已有 ${format === "mov" ? "MOV" : "PNG 动图"}导出任务正在运行`);
+  if (activeControllers.has(format)) throw new Error(`已有 ${format === "mov" ? "MOV" : format === "hevc-alpha" ? "HEVC Alpha" : "PNG 动图"}导出任务正在运行`);
   const controller = new AbortController();
   activeControllers.set(format, controller);
   const signal = controller.signal;
@@ -500,18 +500,20 @@ export async function exportInBrowser(
       });
     }
     const outputCanvas = document.createElement("canvas");
-    outputCanvas.width = crop.width;
-    outputCanvas.height = crop.height;
+    outputCanvas.width = format === "hevc-alpha" ? crop.width + crop.width % 2 : crop.width;
+    outputCanvas.height = format === "hevc-alpha" ? crop.height + crop.height % 2 : crop.height;
     const outputContext = outputCanvas.getContext("2d", { alpha: true })!;
     const stamp = Date.now();
     const outputName = format === "apng"
       ? `OriginKit-${settings.componentName}-${stamp}.png`
-      : `OriginKit-${settings.componentName}-${stamp}-prores4444xq.mov`;
+      : format === "hevc-alpha"
+        ? `OriginKit-${settings.componentName}-${stamp}-hevc-alpha.mov`
+        : `OriginKit-${settings.componentName}-${stamp}-prores4444xq.mov`;
     let nativeSession: NativeExportSession | null = null;
     let apng: FullFrameApngBuilder | null = null;
-    if (format === "mov" || format === "apng") {
+    if (format === "mov" || format === "apng" || format === "hevc-alpha") {
       report({
-        stage: format === "mov" ? "正在检测本机 FFmpeg" : "正在检测本机完整帧编码器",
+        stage: format === "mov" ? "正在检测本机 FFmpeg" : format === "hevc-alpha" ? "正在检测本机 HEVC Alpha 编码器" : "正在检测本机完整帧编码器",
         frame: 0,
         totalFrames,
         progress: settings.adaptiveCanvas ? 36 : 1,
@@ -530,11 +532,13 @@ export async function exportInBrowser(
             signal,
           );
           activeNativeSessions.set(format, nativeSession);
-          report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : "本机完整帧编码加持，神速", frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
-        } catch {
+          report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : format === "hevc-alpha" ? "正在使用本机 HEVC Alpha 编码器" : "本机完整帧编码加持，神速", frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
+        } catch (error) {
+          if (format === "hevc-alpha") throw error;
           nativeSession = null;
         }
       }
+      if (format === "hevc-alpha" && !nativeSession) throw new Error("HEVC Alpha 需要新版饼饼高速导出助手及兼容的 Mac");
       if (!nativeSession && format === "mov") {
         report({ stage: "正在加载浏览器编码器", frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
         ffmpeg = await loadEncoder(format, signal);
@@ -565,10 +569,10 @@ export async function exportInBrowser(
     for (let index = 0; index < totalFrames; index += 1) {
       cancelled(signal);
       const source = await session.renderFrame(index);
-      outputContext.clearRect(0, 0, crop.width, crop.height);
+      outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
       if (settings.background !== "transparent") {
         outputContext.fillStyle = settings.background;
-        outputContext.fillRect(0, 0, crop.width, crop.height);
+        outputContext.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
       }
       outputContext.drawImage(
         source,
@@ -608,7 +612,9 @@ export async function exportInBrowser(
       }
       report({
         stage:
-          format === "apng"
+          format === "hevc-alpha"
+            ? "正在编码透明 HEVC 帧"
+            : format === "apng"
             ? nativeSession
               ? "本机完整帧编码加持，神速"
               : "正在编码完整 PNG 帧"
@@ -633,7 +639,7 @@ export async function exportInBrowser(
       download(new Blob([archive as BlobPart], { type: "application/zip" }), `OriginKit-${settings.componentName}-${Date.now()}-png-sequence.zip`);
     }
     if (nativeSession) {
-      report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : "本机完整帧编码加持，神速", frame: totalFrames, totalFrames, progress: 85 });
+      report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : format === "hevc-alpha" ? "正在封装 HEVC Alpha 视频" : "本机完整帧编码加持，神速", frame: totalFrames, totalFrames, progress: 85 });
       const result = await finishNativeExport(nativeSession, signal);
       activeNativeSessions.delete(format);
       nativeSession = null;

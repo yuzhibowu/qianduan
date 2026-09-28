@@ -1042,6 +1042,9 @@ button:disabled {
   gap: 6px;
   margin-top: 8px;
 }
+.helper-install-actions.native-only {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .helper-install-actions .btn {
   display: flex;
   align-items: center;
@@ -1199,6 +1202,11 @@ button:disabled {
   }
 }
 .btn-primary.apng {
+  margin-top: 7px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.btn-primary.hevc-alpha {
   margin-top: 7px;
   background: var(--surface);
   color: var(--ink);

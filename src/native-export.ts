@@ -5,13 +5,14 @@ export type NativeExportSession = {
   frameBatch: boolean;
 };
 
-export type NativeExportFormat = "mov" | "apng";
+export type NativeExportFormat = "mov" | "apng" | "hevc-alpha";
 
 type NativeCapabilities = {
   available: boolean;
   ffmpegVersion?: string;
   prores4444?: boolean;
   nativeApng?: boolean;
+  hevcAlpha?: boolean;
   frameBatch?: boolean;
 };
 
@@ -35,7 +36,9 @@ export async function detectNativeExporter(format: NativeExportFormat, signal: A
       const capabilities = await response.json() as NativeCapabilities;
       const formatAvailable = format === "mov"
         ? capabilities.prores4444
-        : capabilities.nativeApng;
+        : format === "hevc-alpha"
+          ? capabilities.hevcAlpha
+          : capabilities.nativeApng;
       if (capabilities.available && formatAvailable) return { ...capabilities, endpoint };
     } catch {
       // Try the next trusted local bridge, then fall back to browser encoding.

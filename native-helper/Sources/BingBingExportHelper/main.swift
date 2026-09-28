@@ -113,6 +113,7 @@ private final class ExportJob: @unchecked Sendable {
   var process: Process?
   var input: FileHandle?
   var output: FileHandle?
+  var hevcAlphaEncoder: HEVCAlphaEncoder?
 
   init(id: String, format: String, outputName: String, outputURL: URL, fps: Int, expectedFrames: Int) {
     self.id = id; self.format = format; self.outputName = outputName; self.outputURL = outputURL
@@ -122,6 +123,17 @@ private final class ExportJob: @unchecked Sendable {
   func append(_ frame: Data) throws {
     guard frames < expectedFrames else { throw HelperError.message("帧数超出预期") }
     if format == "mov" { try input?.write(contentsOf: frame) }
+    else if format == "hevc-alpha" {
+      let parsed = try inspectPng(frame)
+      let w = parsed.ihdr.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+      let h = parsed.ihdr.dropFirst(4).prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+      if frames == 0 {
+        width = w; height = h
+        hevcAlphaEncoder = try HEVCAlphaEncoder(outputURL: outputURL, width: Int(w), height: Int(h), fps: fps)
+      } else if w != width || h != height { throw HelperError.message("HEVC Alpha 的每帧尺寸必须一致") }
+      guard let hevcAlphaEncoder else { throw HelperError.message("HEVC Alpha 编码器没有启动") }
+      try hevcAlphaEncoder.append(png: frame)
+    }
     else {
       let parsed = try inspectPng(frame)
       let w = parsed.ihdr.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
@@ -148,6 +160,9 @@ private final class ExportJob: @unchecked Sendable {
       try input?.close()
       process?.waitUntilExit()
       guard process?.terminationStatus == 0 else { throw HelperError.message("本机 FFmpeg 编码失败") }
+    } else if format == "hevc-alpha" {
+      guard let hevcAlphaEncoder else { throw HelperError.message("HEVC Alpha 没有收到视频帧") }
+      try hevcAlphaEncoder.finish()
     } else {
       try output?.write(contentsOf: pngChunk("IEND", Data()))
       try output?.close()
@@ -155,7 +170,7 @@ private final class ExportJob: @unchecked Sendable {
   }
 
   func cancel() {
-    try? input?.close(); try? output?.close(); process?.terminate()
+    try? input?.close(); try? output?.close(); process?.terminate(); hevcAlphaEncoder?.cancel()
     try? FileManager.default.removeItem(at: outputURL)
   }
 }
@@ -279,11 +294,13 @@ private final class HelperServer: @unchecked Sendable {
     if request.method == "OPTIONS" { return send(connection, status: 204, headers: headers) }
     do {
       if request.method == "GET" && request.path == "/v1/capabilities" {
-        return send(connection, headers: headers, body: json(["available": true, "prores4444": ffmpegPath() != nil, "nativeApng": true, "frameBatch": true, "helperVersion": "0.2.1"]))
+        return send(connection, headers: headers, body: json(["available": true, "prores4444": ffmpegPath() != nil, "nativeApng": true, "hevcAlpha": HEVCAlphaEncoder.isAvailable(), "frameBatch": true, "helperVersion": "0.3.0"]))
       }
       if request.method == "POST" && request.path == "/v1/start" {
         let input = try JSONSerialization.jsonObject(with: request.body) as? [String: Any] ?? [:]
-        let format = input["format"] as? String == "apng" ? "apng" : "mov"
+        let format = input["format"] as? String ?? ""
+        guard ["mov", "apng", "hevc-alpha"].contains(format) else { throw HelperError.message("不支持的导出格式") }
+        if format == "hevc-alpha" && !HEVCAlphaEncoder.isAvailable() { throw HelperError.message("此 Mac 不支持 HEVC Alpha 编码") }
         let fps = input["fps"] as? Int ?? 30
         let total = input["totalFrames"] as? Int ?? 0
         guard [24, 25, 30, 50, 60].contains(fps), (1...3600).contains(total) else { throw HelperError.message("导出参数超出安全范围") }
@@ -300,7 +317,7 @@ private final class HelperServer: @unchecked Sendable {
           process.arguments = ["-y", "-v", "error", "-f", "image2pipe", "-framerate", String(fps), "-i", "pipe:0", "-c:v", "prores_ks", "-profile:v", "5", "-bits_per_mb", "8000", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16", "-vendor", "apl0", url.path]
           process.standardInput = pipe; process.standardError = Pipe(); try process.run()
           job.process = process; job.input = pipe.fileHandleForWriting
-        } else {
+        } else if format == "apng" {
           FileManager.default.createFile(atPath: url.path, contents: pngSignature)
           job.output = try FileHandle(forWritingTo: url); try job.output?.seekToEnd()
         }
@@ -324,7 +341,9 @@ private final class HelperServer: @unchecked Sendable {
       }
       send(connection, status: 404, headers: headers, body: json(["error": "未知请求"]))
     } catch {
-      let message = (error as? HelperError).map { if case let .message(text) = $0 { return text }; return "导出失败" } ?? error.localizedDescription
+      let message = (error as? HelperError).map { if case let .message(text) = $0 { return text }; return "导出失败" }
+        ?? (error as? HEVCAlphaError).map { if case let .message(text) = $0 { return text }; return "HEVC Alpha 导出失败" }
+        ?? error.localizedDescription
       send(connection, status: 500, headers: headers, body: json(["error": message]))
     }
   }
