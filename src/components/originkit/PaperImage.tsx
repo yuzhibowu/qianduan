@@ -104,12 +104,30 @@ export default function PaperImage(props: PaperImageProps) {
         canvas,
         alpha: true,
         antialias: true,
+        preserveDrawingBuffer: true,
       });
     } catch {
       return;
     }
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const exportStage = container.closest("[data-testid='export-stage']") as HTMLElement | null;
+    const capture = async () => {
+      const output = document.createElement("canvas");
+      const stageRect = exportStage!.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
+      output.width = Math.round(stageRect.width);
+      output.height = Math.round(stageRect.height);
+      output.getContext("2d", { alpha: true })!.drawImage(
+        canvas,
+        canvasRect.left - stageRect.left,
+        canvasRect.top - stageRect.top,
+        canvasRect.width,
+        canvasRect.height,
+      );
+      return output;
+    };
+    if (exportStage) window.__originKitCaptureFrame = capture;
 
     const FOV = 30;
     const scene = new THREE.Scene();
@@ -134,12 +152,24 @@ export default function PaperImage(props: PaperImageProps) {
         uniforms,
         vertexShader: VERT,
         fragmentShader: FRAG,
+        transparent: true,
+        depthWrite: false,
       }),
     );
     scene.add(mesh);
 
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin("anonymous");
+    let resolveReady: () => void;
+    let rejectReady: (reason: Error) => void;
+    const ready = new Promise<void>((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    });
+    if (container.closest("[data-testid='export-stage']")) {
+      const previous = window.__originKitAssetsReady ?? Promise.resolve();
+      window.__originKitAssetsReady = Promise.all([previous, ready]).then(() => undefined);
+    }
     loader.load(
       imgUrl,
       (tex) => {
@@ -149,10 +179,14 @@ export default function PaperImage(props: PaperImageProps) {
         uniforms.uHasTex.value = 1;
         const img: any = tex.image;
         if (img?.width) uniforms.uImageAspect.value = img.width / img.height;
+        resolveReady();
       },
       undefined,
 
-      () => console.warn("PaperImage: image failed to load:", imgUrl),
+      () => {
+        rejectReady(new Error("Paper Image 图片加载失败，请检查图片地址或重新导入"));
+        console.warn("PaperImage: image failed to load:", imgUrl);
+      },
     );
 
     const halfTan = Math.tan((FOV * Math.PI) / 180 / 2);
@@ -212,7 +246,7 @@ export default function PaperImage(props: PaperImageProps) {
     }
 
     let running = false;
-    const io = new IntersectionObserver(
+    const io = exportStage ? null : new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
           if (running) return;
@@ -225,10 +259,12 @@ export default function PaperImage(props: PaperImageProps) {
       },
       { threshold: 0.01 },
     );
-    io.observe(container);
+    if (io) io.observe(container);
+    else loop();
 
     return () => {
-      io.disconnect();
+      io?.disconnect();
+      if (window.__originKitCaptureFrame === capture) delete window.__originKitCaptureFrame;
       cancelAnimationFrame(raf);
       container.removeEventListener("pointermove", onMove);
       container.removeEventListener("pointerleave", onLeave);
@@ -275,6 +311,7 @@ export default function PaperImage(props: PaperImageProps) {
         )}
         <canvas
           ref={canvasRef}
+          data-paper-image-canvas
           style={{
             position: "absolute",
             top: "-40%",
@@ -329,9 +366,12 @@ uniform sampler2D uTex; uniform float uHasTex, uSheen, uImageAspect; uniform vec
 varying vec2 vUv; varying vec3 vNormal, vViewPos;
 void main() {
     float ar = uPlaneSize.x; vec2 st = vUv;
-    if (ar > uImageAspect) st.y = (vUv.y - 0.5) * (uImageAspect / ar) + 0.5;
-    else st.x = (vUv.x - 0.5) * (ar / uImageAspect) + 0.5;
-    vec3 base = uHasTex > 0.5 ? texture2D(uTex, st).rgb : vec3(0.85);
+    if (ar > uImageAspect) st.x = (vUv.x - 0.5) * (ar / uImageAspect) + 0.5;
+    else st.y = (vUv.y - 0.5) * (uImageAspect / ar) + 0.5;
+    if (any(lessThan(st, vec2(0.0))) || any(greaterThan(st, vec2(1.0)))) discard;
+    vec4 sampled = uHasTex > 0.5 ? texture2D(uTex, st) : vec4(vec3(0.85), 1.0);
+    if (sampled.a <= 0.0) discard;
+    vec3 base = sampled.rgb;
     vec3 N = gl_FrontFacing ? normalize(vNormal) : -normalize(vNormal);
     vec3 L = normalize(vec3(0.35, 0.55, 0.75)), V = normalize(-vViewPos);
     float diff = clamp(dot(N, L), 0.0, 1.0);
@@ -339,9 +379,15 @@ void main() {
 
     float shade = (0.68 + diff * 0.45) / (0.68 + L.z * 0.45);
     float flatSpec = pow(clamp(normalize(L + V).z, 0.0, 1.0), 26.0);
-    gl_FragColor = vec4(base * shade + max(spec - flatSpec, 0.0) * uSheen, 1.0);
+    gl_FragColor = vec4(base * shade + max(spec - flatSpec, 0.0) * uSheen, sampled.a);
     #include <colorspace_fragment>
 }
 `;
 
 PaperImage.displayName = "Paper Image";
+
+declare global {
+  interface Window {
+    __originKitPaperImages?: Record<string, string>;
+  }
+}

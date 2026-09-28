@@ -505,7 +505,12 @@ export default function App() {
   })();
   const queryPaperImage: PaperImageSettings = (() => {
     try {
-      return { ...DEFAULT_PAPER_IMAGE, ...JSON.parse(query.get("paperImage") ?? "{}") };
+      const settings = { ...DEFAULT_PAPER_IMAGE, ...JSON.parse(query.get("paperImage") ?? "{}") };
+      const key = query.get("paperImageKey");
+      if (key && window.parent !== window) {
+        settings.image = window.parent.__originKitPaperImages?.[key] ?? settings.image;
+      }
+      return settings;
     } catch {
       return DEFAULT_PAPER_IMAGE;
     }

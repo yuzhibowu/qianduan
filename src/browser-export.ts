@@ -204,6 +204,11 @@ async function createRenderSession(
   const overlayIllustrationsKey = settings.borderOverlayIllustrations?.length ? crypto.randomUUID() : undefined;
   const shinyGraphicKey = settings.shinyGraphic ? crypto.randomUUID() : undefined;
   const coinModelKey = settings.coinModel ? crypto.randomUUID() : undefined;
+  const paperImageKey = settings.componentId === "paper-image" ? crypto.randomUUID() : undefined;
+  if (paperImageKey) {
+    window.__originKitPaperImages ??= {};
+    window.__originKitPaperImages[paperImageKey] = settings.paperImage.image;
+  }
   if (illustrationKey) {
     window.__originKitBorderIllustrations ??= {};
     window.__originKitBorderIllustrations[illustrationKey] = settings.borderIllustration!;
@@ -272,7 +277,8 @@ async function createRenderSession(
     bloomGrain: String(settings.lightBloom.grain),
     bloomVignette: String(settings.lightBloom.vignette),
     frostedTypeBand: JSON.stringify(settings.frostedTypeBand),
-    paperImage: JSON.stringify(settings.paperImage),
+    paperImage: JSON.stringify({ ...settings.paperImage, image: paperImageKey ? "" : settings.paperImage.image }),
+    ...(paperImageKey ? { paperImageKey } : {}),
     ripple: JSON.stringify(settings.ripple),
     canvasAspect: String(settings.width / Math.max(1, settings.height)),
     material: settings.material,
@@ -299,6 +305,9 @@ async function createRenderSession(
     if (coinModelKey && window.__originKitCoinModels) {
       delete window.__originKitCoinModels[coinModelKey];
       delete window.__originKitCoinModelSlots?.[coinModelKey];
+    }
+    if (paperImageKey && window.__originKitPaperImages) {
+      delete window.__originKitPaperImages[paperImageKey];
     }
   };
   try {
@@ -332,6 +341,8 @@ async function createRenderSession(
             ? "[data-testid='gyro-loader-canvas']"
             : settings.componentId === "light-bloom"
               ? "canvas.motion-root"
+              : settings.componentId === "paper-image"
+                ? "[data-paper-image-canvas]"
               : "";
     const source = canvasSelector
       ? documentInFrame.querySelector(canvasSelector) as HTMLCanvasElement | null
