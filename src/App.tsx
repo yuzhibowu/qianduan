@@ -627,6 +627,7 @@ export default function App() {
   const [frostedTypeBand, setFrostedTypeBand] =
     useState<FrostedTypeBandSettings>(queryFrostedTypeBand);
   const [paperImage, setPaperImage] = useState<PaperImageSettings>(queryPaperImage);
+  const [paperImageError, setPaperImageError] = useState("");
   const [ripple, setRipple] = useState<InspiraRippleSettings>(queryRipple);
   const interactionStartedRef = useRef(0);
   const interactionPressedRef = useRef(false);
@@ -748,6 +749,20 @@ export default function App() {
     document.addEventListener("paste", paste);
     return () => document.removeEventListener("paste", paste);
   }, [exportMode, isShinyPill, shinyContentMode, shinyGraphic, text]);
+
+  useEffect(() => {
+    if (exportMode || !isPaperImage) return;
+    const paste = (event: ClipboardEvent) => {
+      const file = Array.from(event.clipboardData?.items ?? [])
+        .find((item) => item.kind === "file" && item.type.startsWith("image/"))
+        ?.getAsFile();
+      if (!file) return;
+      event.preventDefault();
+      void loadPaperImageFile(file);
+    };
+    document.addEventListener("paste", paste);
+    return () => document.removeEventListener("paste", paste);
+  }, [exportMode, isPaperImage]);
 
   useEffect(() => {
     if (exportMode || !isBorderComponent || !borderIllustration) return;
@@ -1337,6 +1352,23 @@ export default function App() {
       setShinyGraphicError(error instanceof Error ? error.message : String(error));
     }
   }
+  async function loadPaperImageFile(file?: File) {
+    if (!file || componentId !== "paper-image") return;
+    if (!file.type.startsWith("image/")) {
+      setPaperImageError("请选择图片文件");
+      return;
+    }
+    try {
+      const image = await readDataUrl(file);
+      const preview = new Image();
+      preview.src = image;
+      await preview.decode();
+      setPaperImage((current) => ({ ...current, image }));
+      setPaperImageError("");
+    } catch {
+      setPaperImageError("无法读取图片，请重新选择");
+    }
+  }
   const removeShinyGraphic = () => {
     setShinyGraphic(undefined);
     setShinyContentMode("text");
@@ -1435,8 +1467,9 @@ export default function App() {
             onDragOver={(event) => {
               const acceptsBorder = isBorderComponent && Array.from(event.dataTransfer.items).some((item) => item.type === "image/png");
               const acceptsShiny = isShinyPill && Array.from(event.dataTransfer.items).some((item) => item.type === "image/png" || item.type === "image/svg+xml");
+              const acceptsPaperImage = isPaperImage && Array.from(event.dataTransfer.items).some((item) => item.type.startsWith("image/"));
               const acceptsCoin = componentId === "coin-loader" && event.dataTransfer.types.includes("Files");
-              if (!acceptsBorder && !acceptsShiny && !acceptsCoin && !event.dataTransfer.types.includes("Files")) return;
+              if (!acceptsBorder && !acceptsShiny && !acceptsPaperImage && !acceptsCoin && !event.dataTransfer.types.includes("Files")) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "copy";
             }}
@@ -1449,11 +1482,12 @@ export default function App() {
                 return;
               }
               const file = Array.from(event.dataTransfer.files).find((candidate) =>
-                isShinyPill ? Boolean(shinyGraphicKind(candidate)) : candidate.type === "image/png",
+                isShinyPill ? Boolean(shinyGraphicKind(candidate)) : isPaperImage ? candidate.type.startsWith("image/") : candidate.type === "image/png",
               );
               if (!file) return;
               event.preventDefault();
               if (isShinyPill) void loadShinyGraphic(file);
+              else if (isPaperImage) void loadPaperImageFile(file);
               else if (isBorderComponent) void loadBorderPng(file, borderIllustration ? "overlay" : "background");
             }}
             onPointerEnter={(event) => recordInteraction(event, true, false, true)}
@@ -2142,13 +2176,12 @@ export default function App() {
                   <label className="opt paper-image-file-button">
                     <span>选择图片</span>
                     <input type="file" accept="image/*" onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = () => setPaperImage((value) => ({ ...value, image: typeof reader.result === "string" ? reader.result : value.image }));
-                      reader.readAsDataURL(file);
+                      void loadPaperImageFile(event.target.files?.[0]);
+                      event.currentTarget.value = "";
                     }} />
                   </label>
+                  <small className="paper-image-import-hint">也可拖入预览区，或直接粘贴图片</small>
+                  {paperImageError && <p className="field-error" role="alert">{paperImageError}</p>}
                 </div>
                 <h3 className="field-heading">尺寸</h3>
                 <Slider label="卡片宽度" value={paperImage.cardWidth} min={40} max={800} step={1} display={`${paperImage.cardWidth}px`} onChange={(cardWidth) => setPaperImage((value) => ({ ...value, cardWidth }))} />

@@ -693,6 +693,11 @@ h2 {
 .paper-image-file-field {
   margin-top: 14px;
 }
+.paper-image-import-hint {
+  color: var(--label);
+  font-size: 11px;
+  font-weight: 400;
+}
 .local-font-picker {
   display: grid;
   gap: 16px;
