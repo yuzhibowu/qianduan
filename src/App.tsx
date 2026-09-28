@@ -2759,7 +2759,7 @@ export default function App() {
               disabled={exportJobs.mov.running}
               onClick={() => startExport("mov")}
             >
-              {exportJobs.mov.running ? "正在导出 MOV…" : "导出透明 MOV"}
+              {exportJobs.mov.running ? "正在导出 MOV…" : "导出 MOV"}
             </button>
             <button
               className="btn-primary apng"
@@ -2773,7 +2773,7 @@ export default function App() {
               disabled={exportJobs["hevc-alpha"].running}
               onClick={() => startExport("hevc-alpha")}
             >
-              {exportJobs["hevc-alpha"].running ? "正在导出 HEVC Alpha…" : "导出透明 HEVC Alpha"}
+              {exportJobs["hevc-alpha"].running ? "正在导出 HEVC Alpha…" : "导出 HEVC Alpha"}
             </button>
             {(["mov", "apng", "hevc-alpha"] as const).map((format) => {
               const exportJob = exportJobs[format];
