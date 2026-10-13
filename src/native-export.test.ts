@@ -2,11 +2,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NativeExportSession } from "./native-export";
 
 vi.stubGlobal("location", { hostname: "localhost" });
-const { appendNativeFrames } = await import("./native-export");
+const { appendNativeFrames, startNativeExport } = await import("./native-export");
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("native export frame batching", () => {
+  it("uses the unified HEVC wire format while retaining the legacy protocol", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "hevc-job", outputName: "test.mov" })));
+    vi.stubGlobal("fetch", fetchMock);
+    for (const version of ["0.7.0", "0.8.0", "1.0.0", "0.3.0", undefined]) {
+      await startNativeExport("hevc-alpha", 30, "test.mov", true, 30, "http://127.0.0.1:43987/v1", true, new AbortController().signal, version);
+    }
+    expect(fetchMock.mock.calls.map(call => JSON.parse((call as unknown as [string, RequestInit])[1].body as string).format))
+      .toEqual(["hevc", "hevc", "hevc", "hevc-alpha", "hevc-alpha"]);
+  });
   it("packs multiple PNG frames into one length-prefixed request", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);

@@ -2737,16 +2737,14 @@ export default function App() {
             </label>
             {helperPrompt && (
               <div className="helper-install-prompt" role="dialog" aria-label="安装高速导出助手">
-                <p>{helperPrompt.format === "hevc-alpha" ? "透明 HEVC 需要 0.3.0 或更新的饼饼高速导出助手，以及支持 HEVC Alpha 的 Mac。" : "安装“饼饼高速导出助手”，可以使用本机高速导出。"}</p>
+                <p>{helperPrompt.format === "hevc-alpha" ? "透明 HEVC 需要统一饼饼导出助手 0.7，以及支持 HEVC Alpha 的 Mac。" : "安装“饼饼高速导出助手”，可以使用本机高速导出。"}</p>
                 <div className={`helper-install-actions ${helperPrompt.format === "hevc-alpha" ? "native-only" : ""}`}>
                   <a
                     className="btn"
-                    href={helperPrompt.format === "hevc-alpha"
-                      ? "https://github.com/yuzhibowu/qianduan/releases/download/v0.3.0-helper/BingBing-Export-Helper-macOS-universal-AppleSilicon-Intel.dmg"
-                      : "https://github.com/yuzhibowu/qianduan/releases/latest/download/BingBing-Export-Helper-macOS-universal-AppleSilicon-Intel.dmg"}
+                    href="https://3d-sticker-lab.vercel.app/helper/BingBing-Export-Helper-macOS.zip?v=0.7.0"
                     onClick={() => setHelperPrompt((current) => current ? { ...current, status: "下载并打开助手后，点击“重新检测”。" } : current)}
                   >
-                    {helperPrompt.format === "hevc-alpha" ? "安装 0.3.0 助手" : "安装高速助手"}
+                    下载统一助手 0.7
                   </a>
                   <button className="btn" onClick={() => void retryNativeHelper()}>重新检测</button>
                   {helperPrompt.format !== "hevc-alpha" && <button className="btn" onClick={continueWithBrowserExport}>继续浏览器导出</button>}

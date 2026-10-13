@@ -13,6 +13,7 @@ import type { ShinyGraphic } from "./shiny-graphic";
 import type { CoinModelAsset, CoinModelSlot } from "./coin-model-asset";
 import type { CoinFanSettings } from "./coin-fan";
 import { FullFrameApngBuilder } from "./apng";
+import { appleProResVendor } from "./apple-prores";
 import {
   ADAPTIVE_SAFETY_PADDING,
   adaptiveAlphaBounds,
@@ -154,16 +155,6 @@ function download(blob: Blob, name: string) {
   link.download = name;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
-
-function appleVendor(bytes: Uint8Array) {
-  const from = [0x46, 0x46, 0x4d, 0x50];
-  const to = [0x61, 0x70, 0x6c, 0x30];
-  for (let index = 0; index <= bytes.length - from.length; index += 1) {
-    if (from.every((value, offset) => bytes[index + offset] === value))
-      bytes.set(to, index);
-  }
-  return bytes;
 }
 
 function validate(settings: BrowserExportSettings) {
@@ -450,11 +441,11 @@ async function loadEncoder(format: BrowserExportFormat, signal: AbortSignal) {
   if (!coreUrls)
     coreUrls = Promise.all([
       toBlobURL(
-        "/ffmpeg-core/ffmpeg-core.js?v=turntable-7.1-r1",
+        "/ffmpeg-core/ffmpeg-core.js?v=0.12.10-r1",
         "text/javascript",
       ),
       toBlobURL(
-        "/ffmpeg-core/ffmpeg-core.wasm?v=turntable-7.1-r1",
+        "/ffmpeg-core/ffmpeg-core.wasm?v=0.12.10-r1",
         "application/wasm",
       ),
     ]);
@@ -530,6 +521,7 @@ export async function exportInBrowser(
             native.endpoint,
             Boolean(native.frameBatch),
             signal,
+            native.helperVersion,
           );
           activeNativeSessions.set(format, nativeSession);
           report({ stage: format === "mov" ? "本机 FFmpeg 加持，神速" : format === "hevc-alpha" ? "正在使用本机 HEVC Alpha 编码器" : "本机完整帧编码加持，神速", frame: 0, totalFrames, progress: settings.adaptiveCanvas ? 36 : 1 });
@@ -643,7 +635,7 @@ export async function exportInBrowser(
       const result = await finishNativeExport(nativeSession, signal);
       activeNativeSessions.delete(format);
       nativeSession = null;
-      downloadNativeExport(result.downloadUrl, result.outputName);
+      await downloadNativeExport(result.downloadUrl, result.outputName, signal);
       return { outputName: result.outputName, frames: totalFrames, encoder: "native" };
     }
     if (apng) {
@@ -680,7 +672,7 @@ export async function exportInBrowser(
     if (exitCode !== 0) throw new Error(`浏览器编码失败，错误码 ${exitCode}`);
     const output = await wait(ffmpeg.readFile(outputName), signal);
     if (typeof output === "string") throw new Error("编码器返回了无效文件");
-    const bytes = appleVendor(output);
+    const bytes = appleProResVendor(output);
     download(
       new Blob([bytes as BlobPart], {
         type: "video/quicktime",

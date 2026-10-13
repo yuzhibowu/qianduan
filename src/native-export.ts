@@ -1,3 +1,5 @@
+import { appleProResVendor } from "./apple-prores";
+
 export type NativeExportSession = {
   id: string;
   outputName: string;
@@ -13,6 +15,7 @@ type NativeCapabilities = {
   prores4444?: boolean;
   nativeApng?: boolean;
   hevcAlpha?: boolean;
+  helperVersion?: string;
   frameBatch?: boolean;
 };
 
@@ -56,11 +59,15 @@ export async function startNativeExport(
   endpoint: string,
   frameBatch: boolean,
   signal: AbortSignal,
+  helperVersion?: string,
 ) {
+  const version = /^(\d+)\.(\d+)\./.exec(helperVersion ?? "");
+  const unifiedProtocol = version && (Number(version[1]) > 0 || Number(version[2]) >= 7);
+  const protocolFormat = format === "hevc-alpha" && unifiedProtocol ? "hevc" : format;
   const response = await fetch(`${endpoint}/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ format, fps, outputName, pngCompression, totalFrames }),
+    body: JSON.stringify({ format: protocolFormat, fps, outputName, pngCompression, totalFrames }),
     signal,
   });
   if (!response.ok) throw new Error(await responseError(response));
@@ -121,7 +128,19 @@ export async function finishNativeExport(
   return await response.json() as { outputName: string; downloadUrl: string };
 }
 
-export function downloadNativeExport(downloadUrl: string, outputName: string) {
+export async function downloadNativeExport(downloadUrl: string, outputName: string, signal: AbortSignal) {
+  if (/\.mov$/i.test(outputName)) {
+    const response = await fetch(downloadUrl, { signal });
+    if (!response.ok) throw new Error(await responseError(response));
+    const bytes = appleProResVendor(new Uint8Array(await response.arrayBuffer()));
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "video/quicktime" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = outputName;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+    return;
+  }
   const link = document.createElement("a");
   link.href = downloadUrl;
   link.download = outputName;

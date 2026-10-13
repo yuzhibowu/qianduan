@@ -56,6 +56,10 @@ Coin Loader 导出动画 USDZ 时，起始帧是一束重叠的牌，不能让�
 
 MOV 的中间帧由 Canvas `toBlob("image/png")` 直接生成，本身已经是无损 PNG。禁止为了缩小这些只在 WebAssembly 文件系统中短暂存在的中间文件，再对每一帧分别启动一次 `ffmpeg.wasm` 最高等级 PNG 重压缩；这种处理不会改善最终 ProRes 4444 XQ 的画质或透明通道，只会把一次视频编码变成数百次单帧编码。中间 PNG 应逐帧直接写入编码器文件系统，全部帧准备完成后只执行一次 ProRes 编码。
 
+统一助手 0.7 的 MOV 仍可能在 QuickTime 视频 sample entry 中写出 `FFMP`，即使编码命令已经提供 `-vendor apl0`。原生助手与浏览器导出的成品必须复用 `appleProResVendor`，仅沿 MOV 容器的 `moov/trak/mdia/minf/stbl/stsd` 定位 ProRes sample entry 并修改其 vendor 字段；禁止全文搜索替换四字节字符串，以免改动编码样本。下载适配不能改变 PNG 帧、视频编码、Alpha 或时间。必须对实际下载的文件运行 `ffprobe`，核对 `vendor_id=apl0`，再解码检查透明、半透明与不透明像素。
+
+不能根据 WASM 内核显示的 FFmpeg 版本号或命令里的 `-profile:v 5` 推断实际输出一定为 XQ。原 `turntable-7.1-r1` 内核曾忽略数值 profile 并自动选择 4444，也拒绝官方 `4444xq` 名称。已换为固定版本并校验 SHA256 的上游 `@ffmpeg/core@0.12.10`，仍同源随站点发布；缓存标识、来源与哈希见 `public/ffmpeg-core/README.md`。不得把样本类型从 `ap4h` 改写为 `ap4x` 来假冒 XQ：必须由编码器真实应用 profile，再检查实际下载文件的 profile、Alpha 与时间。边框 DOM/CSS 的长周期逐帧栅格化可能明显慢于可直接读取 Canvas 的 3D 组件，短片成功不能代替长周期性能验收。
+
 自适应导出不等于所有案例都必须先完整渲染一遍。颜色只沿静止闭合轮廓运动的边框类案例，其完整周期外包络由背景插图的可见 Alpha 边界、面板变换、描边包裹位置和最大光晕半径唯一决定；没有动画背景 PNG 和额外 PNG 图层时，应直接用这些几何量求出保守安全裁切，跳过第一遍逐帧扫描。背景 PNG 是动图、存在额外可移动图层，或组件真实几何会随时间改变时，继续使用完整周期 Alpha 并集，不能为了提速冒险裁掉动态内容。
 
 Canvas/WebGL 驱动的组件不得默认通过 `html-to-image` 每帧克隆整棵 DOM。能够取得原组件 Canvas、同一背景插图 Canvas 和同一 Alpha 遮罩时，应在逐帧时间更新后直接把这些既有像素按预览中的实际矩形、遮罩、混合与光晕参数合成到透明输出 Canvas；这属于同一渲染器的无损读取，不是另写近似动画。`html-to-image` 只作为尚未提供直接像素出口的 DOM/CSS 组件回退方案。直接合成通道必须与慢速回退抽帧对照，确认构图、透明度、遮罩和光效一致后才能扩展到更多组件。
