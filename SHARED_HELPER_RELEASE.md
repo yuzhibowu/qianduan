@@ -25,6 +25,8 @@
 
 本地证据：`artifacts/helper-release-local/long-neon-attempt-report.json`（下载和完整 Coin 周期），`artifacts/helper-release-local-remaining/report.json`（短边框），`artifacts/helper-release-official-core/report.json`（回退和 4K），并保留内核诊断日志与截图。上线复验输出到 `artifacts/helper-release-production/`。
 
+生产部署已完成：`dpl_8DQUX9BUH7TZKriLBjGrbByAyxeB`，应用代码提交 `c0839f4`，正式页面显示 `261013X1`。正式域名再次实际点击下载并校验 ZIP；完整 Coin、短边框、浏览器回退、4K 短片和 Apple HEVC Alpha 解码合计 8 份成品通过，见 `artifacts/helper-release-production/report.json`。Paper Image 默认 Unsplash 图片使首次 `networkidle` 页面检查超时；测试改为 DOM 就绪后直接导入诊断 PNG，独立复验的第 9 份 APNG 通过，见 `artifacts/helper-release-production-paper/report.json`。两份结果均没有页面异常，不能将前一次等待超时隐藏成整轮脚本一次成功。
+
 ## 边界与组件清单逐项核对
 
 1. 官方源码、依赖、Variant：本次不接入或替换原组件；沿用现有源码，未作新增官方视觉比对。

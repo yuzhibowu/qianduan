@@ -110,7 +110,7 @@ async function exportCase({ name, component = "coin-loader", width = 1280, heigh
   const requests = [];
   page.on("request", request => { if (request.url().includes("43987/v1/start")) requests.push(request.postDataJSON()); });
   if (fallback) await page.route(helperPattern, unavailable);
-  await page.goto(`${site}/?${new URLSearchParams({ component, width, height, ...(duration ? { duration } : {}), fps })}`, { waitUntil: "networkidle" });
+  await page.goto(`${site}/?${new URLSearchParams({ component, width, height, ...(duration ? { duration } : {}), fps })}`, { waitUntil: "domcontentloaded" });
   if (component === "paper-image") {
     const png = new PNG({ width: 128, height: 128 });
     for (let y = 16; y < 112; y++) for (let x = 16; x < 112; x++) {
@@ -204,7 +204,7 @@ try {
   await exportCase({ name: "coin-native-hevc", width: 320, height: 180, duration: 1, formats: ["hevc-alpha"] });
   await exportCase({ name: "paper-image-alpha", component: "paper-image", width: 320, height: 180, duration: 0.2, formats: ["apng"] });
   assert.deepEqual(errors, []);
-  report.checks.push({ name: "无页面异常、双格式并行、独立按钮状态", passed: true });
+  report.checks.push({ name: "所选页面导出完成且无页面异常", passed: true });
   console.log("本轮真实页面发布检查通过");
 } finally {
   await writeFile(resolve(output, "report.json"), JSON.stringify({ ...report, pageErrors: errors }, null, 2));
